@@ -1,0 +1,345 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 820" width="1100" height="820" font-family="'Courier New', monospace">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#4ade80"/>
+    </marker>
+    <marker id="arrowR" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#f87171"/>
+    </marker>
+    <marker id="arrowB" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#60a5fa"/>
+    </marker>
+    <marker id="arrowY" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#fbbf24"/>
+    </marker>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="820" fill="#0d1117"/>
+  <rect width="1100" height="820" fill="url(#grid)" opacity="0.03"/>
+
+  <!-- Grid pattern -->
+  <defs>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#ffffff" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+
+  <!-- Title -->
+  <text x="550" y="35" text-anchor="middle" fill="#e2e8f0" font-size="18" font-weight="bold">SCHALTPLAN – Hühnerklappe Relais + ACS712</text>
+  <text x="550" y="54" text-anchor="middle" fill="#64748b" font-size="11">ESP32-C3 Super Mini  •  2× Relaismodul  •  ACS712 20A  •  Spindelmotor</text>
+  <line x1="40" y1="62" x2="1060" y2="62" stroke="#1e293b" stroke-width="1"/>
+
+  <!-- ═══════════════════════════════════════════════
+       ESP32-C3 SUPER MINI  (center)
+  ════════════════════════════════════════════════ -->
+  <rect x="390" y="250" width="180" height="300" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="2" filter="url(#glow)"/>
+  <text x="480" y="272" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="bold">ESP32-C3</text>
+  <text x="480" y="285" text-anchor="middle" fill="#93c5fd" font-size="9">Super Mini</text>
+
+  <!-- Left pins -->
+  <!-- 5V -->
+  <rect x="370" y="298" width="20" height="14" rx="2" fill="#7f1d1d"/>
+  <text x="388" y="309" text-anchor="end" fill="#fca5a5" font-size="9">5V</text>
+  <text x="395" y="309" fill="#e2e8f0" font-size="9">5V</text>
+  <!-- GND -->
+  <rect x="370" y="318" width="20" height="14" rx="2" fill="#292524"/>
+  <text x="388" y="329" text-anchor="end" fill="#78716c" font-size="9">GND</text>
+  <text x="395" y="329" fill="#e2e8f0" font-size="9">GND</text>
+  <!-- 3V3 -->
+  <rect x="370" y="338" width="20" height="14" rx="2" fill="#4c1d95"/>
+  <text x="388" y="349" text-anchor="end" fill="#c4b5fd" font-size="9">3V3</text>
+  <text x="395" y="349" fill="#e2e8f0" font-size="9">3V3</text>
+  <!-- GPIO1 ADC -->
+  <rect x="370" y="358" width="20" height="14" rx="2" fill="#14532d"/>
+  <text x="388" y="369" text-anchor="end" fill="#86efac" font-size="9">ADC</text>
+  <text x="395" y="369" fill="#e2e8f0" font-size="9">GPIO1</text>
+  <!-- GPIO2 Button -->
+  <rect x="370" y="378" width="20" height="14" rx="2" fill="#0c4a6e"/>
+  <text x="388" y="389" text-anchor="end" fill="#7dd3fc" font-size="9">BTN</text>
+  <text x="395" y="389" fill="#e2e8f0" font-size="9">GPIO2</text>
+  <!-- GPIO3 Dir -->
+  <rect x="370" y="398" width="20" height="14" rx="2" fill="#7c2d12"/>
+  <text x="388" y="409" text-anchor="end" fill="#fdba74" font-size="9">DIR</text>
+  <text x="395" y="409" fill="#e2e8f0" font-size="9">GPIO3</text>
+
+  <!-- Right pins -->
+  <!-- GPIO10 PWR -->
+  <rect x="570" y="298" width="20" height="14" rx="2" fill="#7c2d12"/>
+  <text x="572" y="309" fill="#e2e8f0" font-size="9">GPIO10</text>
+  <text x="573" y="323" fill="#fdba74" font-size="9">PWR</text>
+
+  <!-- ═══════════════════════════════════════════════
+       POWER SUPPLY (top left)
+  ════════════════════════════════════════════════ -->
+  <rect x="55" y="90" width="130" height="90" rx="6" fill="#1e293b" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="120" y="107" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="bold">NETZTEIL</text>
+  <text x="120" y="120" text-anchor="middle" fill="#94a3b8" font-size="9">5V DC</text>
+  <!-- + terminal -->
+  <rect x="75" y="128" width="35" height="16" rx="3" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+  <text x="92" y="140" text-anchor="middle" fill="#fca5a5" font-size="10" font-weight="bold">+5V</text>
+  <!-- - terminal -->
+  <rect x="120" y="128" width="35" height="16" rx="3" fill="#292524" stroke="#78716c" stroke-width="1"/>
+  <text x="137" y="140" text-anchor="middle" fill="#a8a29e" font-size="10" font-weight="bold">GND</text>
+  <text x="120" y="165" text-anchor="middle" fill="#475569" font-size="8">min. 1A</text>
+
+  <!-- ═══════════════════════════════════════════════
+       RELAY 1 – Motorstrom GPIO10 (top right)
+  ════════════════════════════════════════════════ -->
+  <rect x="700" y="85" width="160" height="130" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="780" y="103" text-anchor="middle" fill="#fcd34d" font-size="11" font-weight="bold">RELAIS 1</text>
+  <text x="780" y="116" text-anchor="middle" fill="#94a3b8" font-size="9">Motorstrom AN/AUS</text>
+  <!-- Coil pins -->
+  <rect x="710" y="124" width="30" height="14" rx="2" fill="#7f1d1d"/>
+  <text x="725" y="134" text-anchor="middle" fill="#fca5a5" font-size="8">VCC</text>
+  <rect x="748" y="124" width="30" height="14" rx="2" fill="#292524"/>
+  <text x="763" y="134" text-anchor="middle" fill="#a8a29e" font-size="8">GND</text>
+  <rect x="786" y="124" width="30" height="14" rx="2" fill="#7c2d12"/>
+  <text x="801" y="134" text-anchor="middle" fill="#fdba74" font-size="8">IN</text>
+  <!-- Contact pins -->
+  <line x1="715" y1="155" x2="715" y2="205" stroke="#374151" stroke-width="1"/>
+  <rect x="705" y="155" width="30" height="14" rx="2" fill="#1f2937" stroke="#6b7280" stroke-width="1"/>
+  <text x="720" y="165" text-anchor="middle" fill="#9ca3af" font-size="8">COM</text>
+  <rect x="742" y="155" width="30" height="14" rx="2" fill="#1f2937" stroke="#6b7280" stroke-width="1"/>
+  <text x="757" y="165" text-anchor="middle" fill="#9ca3af" font-size="8">NO</text>
+  <rect x="779" y="155" width="30" height="14" rx="2" fill="#1f2937" stroke="#4b5563" stroke-width="1"/>
+  <text x="794" y="165" text-anchor="middle" fill="#6b7280" font-size="8">NC</text>
+  <!-- Relay symbol -->
+  <rect x="710" y="178" width="50" height="28" rx="3" fill="#111827" stroke="#374151" stroke-width="1"/>
+  <path d="M720,185 Q735,196 750,185" fill="none" stroke="#fcd34d" stroke-width="1.5"/>
+  <line x1="720" y1="198" x2="750" y2="198" stroke="#fcd34d" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="780" y="197" fill="#6b7280" font-size="8">10A / 250V</text>
+
+  <!-- ═══════════════════════════════════════════════
+       RELAY 2 – Richtung GPIO3 (middle right)
+  ════════════════════════════════════════════════ -->
+  <rect x="700" y="265" width="160" height="130" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="780" y="283" text-anchor="middle" fill="#fcd34d" font-size="11" font-weight="bold">RELAIS 2</text>
+  <text x="780" y="296" text-anchor="middle" fill="#94a3b8" font-size="9">Motorrichtung</text>
+  <!-- Coil pins -->
+  <rect x="710" y="304" width="30" height="14" rx="2" fill="#7f1d1d"/>
+  <text x="725" y="314" text-anchor="middle" fill="#fca5a5" font-size="8">VCC</text>
+  <rect x="748" y="304" width="30" height="14" rx="2" fill="#292524"/>
+  <text x="763" y="314" text-anchor="middle" fill="#a8a29e" font-size="8">GND</text>
+  <rect x="786" y="304" width="30" height="14" rx="2" fill="#7c2d12"/>
+  <text x="801" y="314" text-anchor="middle" fill="#fdba74" font-size="8">IN</text>
+  <!-- Contact pins -->
+  <rect x="705" y="335" width="30" height="14" rx="2" fill="#1f2937" stroke="#6b7280" stroke-width="1"/>
+  <text x="720" y="345" text-anchor="middle" fill="#9ca3af" font-size="8">COM</text>
+  <rect x="742" y="335" width="30" height="14" rx="2" fill="#1f2937" stroke="#6b7280" stroke-width="1"/>
+  <text x="757" y="345" text-anchor="middle" fill="#9ca3af" font-size="8">NO</text>
+  <rect x="779" y="335" width="30" height="14" rx="2" fill="#1f2937" stroke="#4b5563" stroke-width="1"/>
+  <text x="794" y="345" text-anchor="middle" fill="#6b7280" font-size="8">NC</text>
+  <!-- Relay symbol -->
+  <rect x="710" y="358" width="50" height="28" rx="3" fill="#111827" stroke="#374151" stroke-width="1"/>
+  <path d="M720,365 Q735,376 750,365" fill="none" stroke="#fcd34d" stroke-width="1.5"/>
+  <line x1="720" y1="378" x2="750" y2="378" stroke="#fcd34d" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="780" y="377" fill="#6b7280" font-size="8">10A / 250V</text>
+
+  <!-- ═══════════════════════════════════════════════
+       ACS712 (bottom left)
+  ════════════════════════════════════════════════ -->
+  <rect x="55" y="440" width="160" height="140" rx="6" fill="#1e293b" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="135" y="458" text-anchor="middle" fill="#86efac" font-size="11" font-weight="bold">ACS712</text>
+  <text x="135" y="471" text-anchor="middle" fill="#94a3b8" font-size="9">Stromsensor 20A</text>
+  <!-- Pins -->
+  <rect x="68" y="480" width="35" height="14" rx="2" fill="#7f1d1d"/>
+  <text x="85" y="490" text-anchor="middle" fill="#fca5a5" font-size="8">VCC 5V</text>
+  <rect x="110" y="480" width="35" height="14" rx="2" fill="#292524"/>
+  <text x="127" y="490" text-anchor="middle" fill="#a8a29e" font-size="8">GND</text>
+  <rect x="152" y="480" width="35" height="14" rx="2" fill="#14532d"/>
+  <text x="169" y="490" text-anchor="middle" fill="#86efac" font-size="8">OUT</text>
+  <!-- Current path -->
+  <rect x="68" y="504" width="35" height="14" rx="2" fill="#1f2937" stroke="#6b7280"/>
+  <text x="85" y="514" text-anchor="middle" fill="#9ca3af" font-size="8">IP+</text>
+  <rect x="152" y="504" width="35" height="14" rx="2" fill="#1f2937" stroke="#6b7280"/>
+  <text x="169" y="514" text-anchor="middle" fill="#9ca3af" font-size="8">IP-</text>
+  <!-- Hall sensor symbol -->
+  <rect x="85" y="528" width="70" height="30" rx="4" fill="#0f172a" stroke="#22c55e" stroke-width="1"/>
+  <text x="120" y="538" text-anchor="middle" fill="#4ade80" font-size="7">Hall-Sensor</text>
+  <text x="120" y="550" text-anchor="middle" fill="#4ade80" font-size="7">100mV/A</text>
+  <text x="135" y="575" text-anchor="middle" fill="#475569" font-size="8">max. 20A</text>
+
+  <!-- ═══════════════════════════════════════════════
+       VOLTAGE DIVIDER (center left)
+  ════════════════════════════════════════════════ -->
+  <rect x="240" y="440" width="120" height="140" rx="6" fill="#1e293b" stroke="#a855f7" stroke-width="1.5"/>
+  <text x="300" y="458" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="bold">TEILER</text>
+  <text x="300" y="470" text-anchor="middle" fill="#94a3b8" font-size="8">5V → 3.3V</text>
+  <!-- R1 -->
+  <line x1="300" y1="480" x2="300" y2="500" stroke="#86efac" stroke-width="2"/>
+  <rect x="283" y="500" width="34" height="18" rx="3" fill="#111827" stroke="#a855f7" stroke-width="1.5"/>
+  <text x="300" y="513" text-anchor="middle" fill="#d8b4fe" font-size="9" font-weight="bold">10kΩ</text>
+  <line x1="300" y1="518" x2="300" y2="535" stroke="#86efac" stroke-width="2"/>
+  <!-- Junction -->
+  <circle cx="300" cy="535" r="4" fill="#fbbf24"/>
+  <text x="318" y="539" fill="#fbbf24" font-size="8">→ GPIO1</text>
+  <!-- R2 -->
+  <line x1="300" y1="539" x2="300" y2="552" stroke="#86efac" stroke-width="2"/>
+  <rect x="283" y="552" width="34" height="18" rx="3" fill="#111827" stroke="#a855f7" stroke-width="1.5"/>
+  <text x="300" y="565" text-anchor="middle" fill="#d8b4fe" font-size="9" font-weight="bold">22kΩ</text>
+  <line x1="300" y1="570" x2="300" y2="585" stroke="#a8a29e" stroke-width="2"/>
+  <!-- R3 Pull-down -->
+  <line x1="300" y1="535" x2="260" y2="535" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <line x1="260" y1="535" x2="260" y2="552" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="243" y="552" width="34" height="18" rx="3" fill="#111827" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="260" y="565" text-anchor="middle" fill="#fbbf24" font-size="8">100kΩ</text>
+  <line x1="260" y1="570" x2="260" y2="582" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="260" y="593" text-anchor="middle" fill="#6b7280" font-size="7">Pull-Down</text>
+  <!-- GND symbol -->
+  <line x1="300" y1="585" x2="300" y2="592" stroke="#a8a29e" stroke-width="2"/>
+  <line x1="291" y1="592" x2="309" y2="592" stroke="#a8a29e" stroke-width="2"/>
+  <line x1="294" y1="596" x2="306" y2="596" stroke="#a8a29e" stroke-width="1.5"/>
+  <line x1="297" y1="600" x2="303" y2="600" stroke="#a8a29e" stroke-width="1"/>
+
+  <!-- ═══════════════════════════════════════════════
+       TASTER (bottom center)
+  ════════════════════════════════════════════════ -->
+  <rect x="390" y="620" width="120" height="80" rx="6" fill="#1e293b" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="450" y="638" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="bold">TASTER</text>
+  <!-- Button symbol -->
+  <line x1="420" y1="655" x2="420" y2="670" stroke="#60a5fa" stroke-width="2"/>
+  <line x1="410" y1="662" x2="430" y2="662" stroke="#60a5fa" stroke-width="2"/>
+  <circle cx="420" cy="655" r="3" fill="#60a5fa"/>
+  <line x1="450" y1="670" x2="450" y2="655" stroke="#60a5fa" stroke-width="2"/>
+  <circle cx="450" cy="670" r="3" fill="#60a5fa"/>
+  <line x1="430" y1="662" x2="447" y2="655" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="2,2"/>
+  <text x="450" y="690" text-anchor="middle" fill="#475569" font-size="8">GPIO2 → GND</text>
+
+  <!-- ═══════════════════════════════════════════════
+       SPINDELMOTOR (right)
+  ════════════════════════════════════════════════ -->
+  <rect x="870" y="200" width="170" height="190" rx="6" fill="#1e293b" stroke="#6b7280" stroke-width="1.5"/>
+  <text x="955" y="218" text-anchor="middle" fill="#d1d5db" font-size="11" font-weight="bold">SPINDELMOTOR</text>
+  <text x="955" y="231" text-anchor="middle" fill="#94a3b8" font-size="9">DC Linearaktor</text>
+  <!-- Motor symbol -->
+  <circle cx="935" cy="295" r="40" fill="#111827" stroke="#6b7280" stroke-width="2"/>
+  <text x="935" y="292" text-anchor="middle" fill="#9ca3af" font-size="14" font-weight="bold">M</text>
+  <text x="935" y="306" text-anchor="middle" fill="#6b7280" font-size="8">≈</text>
+  <!-- Motor terminals -->
+  <rect x="883" y="248" width="30" height="14" rx="2" fill="#7f1d1d" stroke="#ef4444"/>
+  <text x="898" y="258" text-anchor="middle" fill="#fca5a5" font-size="8">M+</text>
+  <rect x="985" y="248" width="30" height="14" rx="2" fill="#1e3a5f" stroke="#60a5fa"/>
+  <text x="1000" y="258" text-anchor="middle" fill="#93c5fd" font-size="8">M-</text>
+  <!-- Arrows showing direction -->
+  <path d="M875,335 L860,335 L860,370 L875,370" fill="none" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="845" y="355" text-anchor="middle" fill="#4ade80" font-size="8" transform="rotate(-90,845,355)">Normal</text>
+  <path d="M1015,335 L1030,335 L1030,370 L1015,370" fill="none" stroke="#f87171" stroke-width="1.5"/>
+  <text x="1045" y="355" text-anchor="middle" fill="#f87171" font-size="8" transform="rotate(90,1045,355)">Rückwärts</text>
+  <text x="955" y="375" text-anchor="middle" fill="#475569" font-size="8">12–24V DC</text>
+
+  <!-- ═══════════════════════════════════════════════
+       WIRES / CONNECTIONS
+  ════════════════════════════════════════════════ -->
+
+  <!-- === 5V Power rail (red) === -->
+  <!-- PSU+ → ESP32 5V -->
+  <polyline points="110,128 110,115 300,115 300,240 380,240 380,305 370,305" fill="none" stroke="#ef4444" stroke-width="2"/>
+  <!-- PSU+ → Relay1 VCC -->
+  <polyline points="110,115 650,115 650,131 710,131" fill="none" stroke="#ef4444" stroke-width="2"/>
+  <!-- PSU+ → Relay2 VCC (branch) -->
+  <polyline points="650,115 650,311 710,311" fill="none" stroke="#ef4444" stroke-width="2"/>
+  <!-- PSU+ → ACS712 VCC -->
+  <polyline points="110,128 75,128 75,440 75,487 68,487" fill="none" stroke="#ef4444" stroke-width="2"/>
+  <!-- Labels -->
+  <text x="300" y="112" text-anchor="middle" fill="#fca5a5" font-size="8">+5V</text>
+  <text x="650" y="112" text-anchor="middle" fill="#fca5a5" font-size="8">+5V</text>
+  <circle cx="110" cy="115" r="3" fill="#ef4444"/>
+  <circle cx="650" cy="115" r="3" fill="#ef4444"/>
+
+  <!-- === GND rail (dark) === -->
+  <!-- PSU GND → ESP32 GND -->
+  <polyline points="137,144 137,132 200,132 200,255 380,255 380,325 370,325" fill="none" stroke="#78716c" stroke-width="2"/>
+  <!-- PSU GND → Relay1 GND -->
+  <polyline points="200,132 200,105 760,105 760,131 748,131" fill="none" stroke="#78716c" stroke-width="2"/>
+  <!-- PSU GND → Relay2 GND (branch) -->
+  <polyline points="760,105 760,311 748,311" fill="none" stroke="#78716c" stroke-width="2"/>
+  <!-- PSU GND → ACS712 GND -->
+  <polyline points="137,144 127,144 127,435 127,487 110,487" fill="none" stroke="#78716c" stroke-width="2"/>
+  <!-- Divider GND -->
+  <polyline points="300,592 300,620 200,620 200,255" fill="none" stroke="#78716c" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <circle cx="200" cy="132" r="3" fill="#78716c"/>
+  <circle cx="760" cy="105" r="3" fill="#78716c"/>
+  <circle cx="200" cy="255" r="3" fill="#78716c"/>
+
+  <!-- === GPIO10 → Relay1 IN (orange) === -->
+  <polyline points="590,305 660,305 660,220 786,220 786,138" fill="none" stroke="#f97316" stroke-width="2"/>
+  <text x="640" y="302" fill="#fdba74" font-size="8">GPIO10</text>
+
+  <!-- === GPIO3 → Relay2 IN (orange dashed) === -->
+  <polyline points="370,405 355,405 355,420 660,420 660,380 786,380 786,318" fill="none" stroke="#f97316" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="355" y="402" fill="#fdba74" font-size="8">GPIO3</text>
+
+  <!-- === ACS712 OUT → Divider (green) === -->
+  <polyline points="187,487 215,487 215,475 300,475 300,480" fill="none" stroke="#22c55e" stroke-width="2"/>
+  <text x="240" y="473" fill="#86efac" font-size="8">OUT</text>
+
+  <!-- === Divider → GPIO1 (yellow) === -->
+  <polyline points="318,535 370,535 370,365 370,365" fill="none" stroke="#fbbf24" stroke-width="2"/>
+  <text x="340" y="530" fill="#fbbf24" font-size="8">→GPIO1</text>
+
+  <!-- === GPIO2 → Taster (blue) === -->
+  <polyline points="370,385 345,385 345,610 420,610 420,620" fill="none" stroke="#60a5fa" stroke-width="2"/>
+  <text x="330" y="382" fill="#7dd3fc" font-size="8">GPIO2</text>
+  <!-- Taster → GND -->
+  <polyline points="450,700 450,720 200,720 200,620" fill="none" stroke="#78716c" stroke-width="2"/>
+  <circle cx="200" cy="620" r="3" fill="#78716c"/>
+
+  <!-- === Relay1 COM → ACS712 IP+ === -->
+  <polyline points="720,169 720,215 88,215 88,510 88,504 68,504" fill="none" stroke="#fbbf24" stroke-width="2.5"/>
+  <text x="400" y="213" text-anchor="middle" fill="#fbbf24" font-size="8">Motor Stromkreis (durch ACS712)</text>
+
+  <!-- === ACS712 IP- → Relay2 COM === -->
+  <polyline points="187,511 820,511 820,400 820,349 720,349" fill="none" stroke="#fbbf24" stroke-width="2.5"/>
+
+  <!-- === Relay2 NO → Motor M+ === -->
+  <polyline points="772,349 772,440 898,440 898,262" fill="none" stroke="#ef4444" stroke-width="2.5"/>
+  <text x="840" y="437" fill="#fca5a5" font-size="8">M+</text>
+
+  <!-- === Relay1 NO → Motor return === -->
+  <!-- Motor M- → common GND -->
+  <polyline points="1000,262 1000,440 880,440" fill="none" stroke="#60a5fa" stroke-width="2.5"/>
+  <text x="990" y="437" fill="#93c5fd" font-size="8">M-</text>
+  <polyline points="880,440 820,440 820,511" fill="none" stroke="#60a5fa" stroke-width="2.5"/>
+  <circle cx="820" cy="511" r="4" fill="#fbbf24"/>
+
+  <!-- Relay1 NO to IP+ junction note -->
+  <text x="720" y="165" fill="#6b7280" font-size="7">NO</text>
+
+  <!-- ═══════════════════════════════════════════════
+       LEGEND
+  ════════════════════════════════════════════════ -->
+  <rect x="55" y="730" width="990" height="72" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <text x="75" y="748" fill="#64748b" font-size="9" font-weight="bold">LEGENDE</text>
+  <!-- Red -->
+  <line x1="75" y1="762" x2="115" y2="762" stroke="#ef4444" stroke-width="2"/>
+  <text x="120" y="765" fill="#94a3b8" font-size="9">+5V / Versorgung</text>
+  <!-- Dark -->
+  <line x1="220" y1="762" x2="260" y2="762" stroke="#78716c" stroke-width="2"/>
+  <text x="265" y="765" fill="#94a3b8" font-size="9">GND</text>
+  <!-- Orange -->
+  <line x1="340" y1="762" x2="380" y2="762" stroke="#f97316" stroke-width="2"/>
+  <text x="385" y="765" fill="#94a3b8" font-size="9">GPIO Signal (Relais)</text>
+  <!-- Yellow -->
+  <line x1="510" y1="762" x2="550" y2="762" stroke="#fbbf24" stroke-width="2"/>
+  <text x="555" y="765" fill="#94a3b8" font-size="9">Motorstromkreis</text>
+  <!-- Green -->
+  <line x1="665" y1="762" x2="705" y2="762" stroke="#22c55e" stroke-width="2"/>
+  <text x="710" y="765" fill="#94a3b8" font-size="9">ACS712 Signal</text>
+  <!-- Blue -->
+  <line x1="810" y1="762" x2="850" y2="762" stroke="#60a5fa" stroke-width="2"/>
+  <text x="855" y="765" fill="#94a3b8" font-size="9">Taster / Motor M-</text>
+  <!-- Orange dashed -->
+  <line x1="950" y1="762" x2="990" y2="762" stroke="#f97316" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="995" y="765" fill="#94a3b8" font-size="9">Richtung</text>
+
+  <!-- Notes row -->
+  <text x="75" y="790" fill="#475569" font-size="8">⚠  Relais-Module mit eigenem Optokoppler empfohlen (IN-Pin LOW-aktiv)</text>
+  <text x="420" y="790" fill="#475569" font-size="8">⚠  ACS712 IP+/IP- trägt den vollen Motorstrom  →  mind. 3A Leitungsquerschnitt!</text>
+  <text x="800" y="790" fill="#475569" font-size="8">⚠  Pull-Down 100kΩ nicht vergessen</text>
+
+</svg>
