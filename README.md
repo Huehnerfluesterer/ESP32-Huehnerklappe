@@ -1,167 +1,213 @@
 # 🐔 Hühnerklappe – Firmware
 
-Automatische Hühnerklappe auf Basis des **ESP32-S3-DevKitC-1-N16R8**.
+Automatische Hühnerklappe auf Basis des **ESP32‑S3‑DevKitC‑1‑N16R8**.
+Lichtsensor‑ und Zeitsteuerung, RGBW‑Stalllicht, Blockadeerkennung,
+Web‑Oberfläche als PWA, MQTT, Telegram‑Benachrichtigungen und
+ESP‑NOW‑Anbindung für Außensensor und Remote‑Relais.
+
+**Aktuelle Firmware‑Version:** `3.0.16` (siehe `src/main.cpp`)
 
 ---
 
-## Hardware
+## Dokumentation
+
+| Dokument | Inhalt |
+|---|---|
+| [docs/HW.de.md](docs/HW.de.md) | Hardware, Pin‑Belegung, Verkabelung |
+| [docs/installation.de.md](docs/installation.de.md) | Installation, Flashen, Ersteinrichtung |
+| [docs/architecture.de.md](docs/architecture.de.md) | Software‑Architektur, Loop, Automatik |
+| [docs/webinterface.de.md](docs/webinterface.de.md) | Alle Web‑Seiten und API‑Endpoints |
+| [docs/mqtt.de.md](docs/mqtt.de.md) | MQTT‑Topics, Payloads, Beispiele |
+| [docs/telegram.de.md](docs/telegram.de.md) | Telegram‑Benachrichtigungen |
+| [docs/espnow.de.md](docs/espnow.de.md) | ESP‑NOW Außensensor + Relais‑Node |
+| [docs/blockade.de.md](docs/blockade.de.md) | Blockadeerkennung über ACS712 |
+
+---
+
+## Hardware-Überblick
 
 | Komponente | Typ / Wert |
 |---|---|
-| Mikrocontroller | ESP32-S3-DevKitC-1-N16R8 |
-| Flash | 16 MB Quad-SPI |
-| PSRAM | 8 MB Octal-SPI (OPI) |
-| Motorsteuerung | L298N Dual H-Bridge |
+| Mikrocontroller | ESP32‑S3‑DevKitC‑1‑N16R8 |
+| Flash | 16 MB Quad‑SPI |
+| PSRAM | 8 MB Octal‑SPI (OPI) |
+| Motorsteuerung | L298N Dual H‑Bridge |
 | Motor | 12 V DC Getriebemotor |
-| Licht-Sensor | VEML7700 (I²C) |
-| Temperatursensor | BME280 (lokal I²C oder via ESP-NOW) |
-| Stromsensor | ACS712-5A |
-| RGBW+WW LED-Strip | 12 V, 5 Kanäle, 5× IRLZ44N (Logic-Level MOSFET) |
-| Relais Locklicht | 5 V, **HIGH-aktiv** (Jumper auf Active HIGH) |
-| Relais Stalllicht | 5 V, **HIGH-aktiv** (Jumper auf Active HIGH) |
+| Licht‑Sensor | VEML7700 (I²C, 3,3 V, Adresse `0x10`) |
+| Echtzeit‑Uhr | DS3231 (I²C, optional, NTP als Fallback) |
+| Temperatur/Feuchte | BME280 (lokal I²C **oder** via ESP‑NOW) |
+| Stromsensor | ACS712‑5A (Blockadeerkennung) |
+| RGBW LED‑Strip | 12 V, 4 Kanäle (R, G, B, W) über N‑Kanal MOSFETs |
+| Relais Locklicht | 5 V, **Active HIGH** |
+| Relais Stalllicht | 5 V, **Active HIGH** |
 | Versorgung | 12 V DC → LM2596 5 V → onboard 3,3 V |
+
+Details siehe [docs/HW.de.md](docs/HW.de.md).
 
 ---
 
 ## Pin-Belegung ESP32-S3
 
-> **Hinweis:** GPIO 26–32 sind intern für Flash belegt, GPIO 33–37 für OPI-PSRAM, GPIO 19/20 für native USB-CDC.  
-> Auf dem ESP32-S3 gibt es **keine input-only GPIOs** mehr – alle Pins unterstützen `INPUT_PULLUP`.
+> **Hinweis:** Auf dem N16R8 sind GPIO 26–32 für Flash, GPIO 33–37 für
+> OPI‑PSRAM und GPIO 19/20 für native USB‑CDC belegt und dürfen nicht
+> anderweitig verwendet werden. GPIO 22–25 existieren auf dem S3 nicht.
 
 | Signal | GPIO | Anmerkung |
 |--------|------|-----------|
-| MOTOR_IN1 | 15 | L298N Richtung A |
-| MOTOR_IN2 | 5 | L298N Richtung B |
-| MOTOR_ENA | 13 | L298N PWM Enable (LEDC) |
-| RELAIS_PIN (Locklicht) | 18 | HIGH-aktiv (Jumper auf Active HIGH) |
-| STALLLIGHT_RELAY_PIN | 10 | HIGH-aktiv (Jumper auf Active HIGH) |
-| BUTTON_PIN (Klappe) | 39 | INPUT_PULLUP |
-| STALL_BUTTON_PIN | 41 | INPUT_PULLUP |
-| RED_BUTTON_PIN | 40 | INPUT_PULLUP |
-| ACS712_PIN (Analog) | 7 | ADC1 – WiFi-sicher |
-| I2C SDA | 8 | VEML7700 |
-| I2C SCL | 9 | VEML7700 |
-| LIMIT_OPEN_PIN | 14 | Endschalter Öffnen (optional) |
-| LIMIT_CLOSE_PIN | 12 | Endschalter Schließen (optional) |
-| RGB_PIN_R | 4 | IRLZ44N Gate, 10 kΩ Pull-down |
-| RGB_PIN_G | 16 | IRLZ44N Gate, 10 kΩ Pull-down |
-| RGB_PIN_B | 17 | IRLZ44N Gate, 10 kΩ Pull-down |
-| RGB_PIN_W | 21 | IRLZ44N Gate, 10 kΩ Pull-down |
-| RGB_PIN_WW | (konfigurierbar) | IRLZ44N Gate, 10 kΩ Pull-down |
+| `MOTOR_IN1` | 15 | L298N Richtung A |
+| `MOTOR_IN2` | 5 | L298N Richtung B |
+| `MOTOR_ENA` | 13 | L298N PWM Enable (LEDC) |
+| `RELAIS_PIN` (Locklicht) | 18 | Relais Kanal 1 |
+| `STALLLIGHT_RELAY_PIN` | 10 | Relais Kanal 2 |
+| `BUTTON_PIN` (Klappe) | 39 | INPUT_PULLUP |
+| `STALL_BUTTON_PIN` | 41 | INPUT_PULLUP |
+| `RED_BUTTON_PIN` | 40 | INPUT_PULLUP |
+| `ACS712_PIN` | 7 | ADC1 – WiFi‑sicher |
+| `I2C_SDA` | 8 | VEML7700 + DS3231 + (BME280) |
+| `I2C_SCL` | 9 | VEML7700 + DS3231 + (BME280) |
+| `LIMIT_OPEN_PIN` | 14 | Endschalter Öffnen (optional) |
+| `LIMIT_CLOSE_PIN` | 12 | Endschalter Schließen (optional) |
+| `RGB_PIN_R` | 4 | IRLZ44N Gate, 10 kΩ Pull‑down |
+| `RGB_PIN_G` | 16 | IRLZ44N Gate, 10 kΩ Pull‑down |
+| `RGB_PIN_B` | 17 | IRLZ44N Gate, 10 kΩ Pull‑down |
+| `RGB_PIN_W` | 21 | IRLZ44N Gate, 10 kΩ Pull‑down |
 
 ---
 
-## Relais-Konfiguration
+## Relais – Active LOW
 
-Die Relaismodule sind auf **Active HIGH** konfiguriert (Jumper umgesteckt):
+Die verbauten Relaismodule sind per Jumper auf **Active HIGH**
+konfiguriert. Die Relais ziehen an, wenn der zugehörige GPIO HIGH
+ausgibt.
 
-- `RELAY_ON = HIGH` → Relais zieht an wenn GPIO HIGH
-- `RELAY_OFF = LOW`
-
-Dies verhindert das ungewollte Anziehen der Relais beim Bootvorgang, da GPIOs beim Start LOW sind.
+#define RELAY_ON  HIGH
+#define RELAY_OFF LOW
 
 ---
 
-## RGBW+WW LED-Strip (5 Kanäle)
+## RGBW LED-Strip (4 Kanäle)
 
-Der Strip hat 5 Kanäle: R, G, B, W (Kaltweiß), WW (Warmweiß).  
-Jeder Kanal wird über einen **IRLZ44N** N-Kanal MOSFET geschaltet (Low-Side Switching):
+Der Strip hat die vier Kanäle **R, G, B, W**. Jeder Kanal wird über
+einen **IRLZ44N** N‑Kanal MOSFET low‑side geschaltet:
 
 ```
-+12V ────────────────────── Strip +12V (gemeinsam)
++12 V ──────────────────────── Strip +12 V (gemeinsam)
 
-Strip R  ──── Drain │
-Strip G  ──── Drain │  je ein IRLZ44N
-Strip B  ──── Drain │  + 10 kΩ Pull-down Gate→GND
+Strip R  ──── Drain │  IRLZ44N
+Strip G  ──── Drain │  + 10 kΩ Pull‑down Gate → GND
+Strip B  ──── Drain │
 Strip W  ──── Drain │
-Strip WW ──── Drain │
 
 Source ──── GND (gemeinsam mit ESP32 und Netzteil)
 
-ESP32 GPIO ──── Gate (10 kΩ Pull-down nach GND)
+ESP32 GPIO ──── Gate (10 kΩ Pull‑down nach GND)
 ```
 
-**Warum IRLZ44N?** Logic-Level kompatibel (öffnet ab 2 V Gate), kein Optokoppler, lineares Dimmen via PWM. Kein Kühlkörper nötig bis ca. 5 A pro Kanal.
+**Warum IRLZ44N?** Logic‑Level‑kompatibel (öffnet ab ca. 2 V
+Gate‑Spannung), keine Treiberstufe nötig, lineares Dimmen per LEDC‑PWM
+direkt am 3,3 V GPIO. Kein Kühlkörper bis ca. 5 A pro Kanal.
+
+Farbe und Helligkeit werden im EEPROM persistiert (5 Bytes:
+`r, g, b, w, brightness`) und können über `/rgb` im Web‑Interface live
+geändert werden.
 
 ---
 
-## Hardware-Watchdog TPL5110
+## Watchdog
 
-```
-TPL5110 VDD  → 3,3 V
-TPL5110 GND  → GND
-TPL5110 DRV  → ESP32-S3 EN-Pin  (Reset-Leitung)
-TPL5110 DONE → GPIO 6
-33 kΩ an DELAY → GND  (≈ 50 s Timeout)
-```
+Die Firmware verwendet den **internen ESP32 Task‑Watchdog**
+(`esp_task_wdt`) mit einem Timeout von 30 s. Wird `wdogFeed()` im Loop
+länger als 30 s nicht aufgerufen, löst der Watchdog einen sauberen
+Panic‑Reset aus (Reset‑Reason: `ESP_RST_TASK_WDT`).
 
-Der ESP32 sendet alle 20 s einen Puls an DONE. Bleibt der Puls aus (Loop hängt), resettet der TPL5110 den ESP32 nach ~50 s automatisch.
+> Die ursprüngliche Variante mit externem TPL5110 Hardware‑Watchdog an
+> GPIO 6 ist **nicht mehr Bestandteil** der aktuellen Firmware. Die
+> Init‑Funktion heißt aus Kompatibilitätsgründen noch `tpl5110Init()`,
+> startet aber den internen Task‑WDT. GPIO 6 ist damit frei.
 
-Test: `curl -X POST http://<IP>/test/wdog` – blockiert den Loop für 70 s, TPL5110 feuert nach ~50 s.
+Nach einem Watchdog‑Reset schickt die Firmware, sofern Telegram
+aktiviert ist, automatisch eine Nachricht (siehe
+[docs/telegram.de.md](docs/telegram.de.md)).
 
 ---
 
-## StatusLED (deaktiviert)
+## StatusLED
 
-Der ESP32-S3-N16R8 verwendet OPI-PSRAM (GPIO 33–37). Das RMT-Peripheral des ESP32-S3, das für WS2812-LEDs benötigt wird, kollidiert bei diesem Board mit dem OPI-PSRAM und verursacht WiFi-Abstürze. Die interne RGB-LED (GPIO 48) ist daher in der Firmware deaktiviert (`statusled.cpp` enthält nur leere Stubs).
+Der ESP32‑S3‑N16R8 verwendet OPI‑PSRAM (GPIO 33–37). Das RMT‑Peripheral,
+das für die on‑board WS2812 an GPIO 48 benötigt wird, kollidiert bei
+diesem Board mit dem OPI‑PSRAM und verursacht WiFi‑Abstürze. Die
+`statusled.cpp` enthält deshalb nur leere Stubs.
 
-Workaround: Board ohne OPI-PSRAM verwenden (z.B. N8R2 = 8 MB Flash, kein PSRAM), dann ist die WS2812-LED nutzbar.
+Workaround: Board ohne OPI‑PSRAM verwenden (z. B. N8R2 = 8 MB Flash,
+kein PSRAM), dann ist die WS2812 nutzbar.
 
 ---
 
 ## Partitionstabelle
 
-```
-partitions_16mb_ota.csv  (board_build.partitions)
-```
+`partitions_16mb_ota.csv` (als `board_build.partitions`):
 
 | Partition | Typ | Größe |
 |---|---|---|
 | nvs | NVS | 20 KB |
-| otadata | OTA-Data | 8 KB |
+| otadata | OTA‑Data | 8 KB |
 | app0 | OTA_0 | ~6,5 MB |
 | app1 | OTA_1 | ~6,5 MB |
-| spiffs | SPIFFS/LittleFS | ~1,5 MB |
+| spiffs | LittleFS | ~1,5 MB |
 
-> **Wichtig:** PlatformIO erwartet `board_build.filesystem = littlefs` und die Partition heißt intern `spiffs` – das ist korrekt und kein Fehler.
+> **Wichtig:** PlatformIO verwendet `board_build.filesystem = littlefs`.
+> Die Partition heißt intern weiterhin `spiffs` – das ist korrekt und
+> kein Fehler.
 
 ---
 
 ## Flashen
 
 ```bash
-# PlatformIO CLI
+# Firmware
 pio run -t upload
 
-# LittleFS-Partition flashen (Erstinstallation)
+# LittleFS-Partition (nur bei Erstinstallation nötig)
 pio run -t uploadfs
-
-# Bei Boot-Problemen
-# BOOT-Taste gedrückt halten → Reset drücken → loslassen
 ```
+
+Bei Upload‑Problemen: **BOOT**‑Taste am DevKit gedrückt halten,
+**RESET** drücken, loslassen und dann den Upload starten.
+
+Serieller Monitor: **115200 baud**.
 
 ---
 
 ## Konfiguration
 
-Zugangsdaten in `src/config.h` eintragen (nicht ins Git committen!):
+WLAN‑Zugangsdaten in `src/config.h`:
 
 ```cpp
 #define WIFI_SSID     "dein_ssid"
 #define WIFI_PASSWORD "dein_passwort"
 ```
 
-`.gitignore` Eintrag:
-```
-src/config.h
-```
+> ⚠️ Diese Datei enthält Geheimnisse und muss in `.gitignore`:
+>
+> ```
+> src/config.h
+> ```
+>
+> Alle weiteren Einstellungen (MQTT, Telegram, RGB, ESP‑NOW‑MACs,
+> Blockade, Motorpositionen, Theme) werden zur Laufzeit über die
+> Web‑Oberfläche gesetzt und im EEPROM/NVS persistiert.
 
 ---
 
 ## Teilprojekte
 
+Das Repository enthält neben der Hauptfirmware zwei kleine
+Companion‑Sketches für ESP‑NOW:
+
 | Ordner | Board | Funktion |
 |---|---|---|
-| `klappe_new/` | ESP32-S3-DevKitC-1-N16R8 | Hauptsteuerung Hühnerklappe |
-| `bme280_sender/` | ESP32 DevKit | BME280-Sensor → ESP-NOW Sender |
-| `relay_esp/` | ESP32-C3-DevKitM-1 | Relais-Node (ESP-NOW Empfänger) |
+| `./` (`src/`) | ESP32‑S3‑DevKitC‑1‑N16R8 | Hauptsteuerung Hühnerklappe |
+| `ESP-NOW/bme280_sender/` | ESP32 DevKit | BME280 → ESP‑NOW Sender |
+| `ESP-NOW/relay_esp/` | ESP32‑C3‑DevKitM‑1 | Remote‑Relais (ESP‑NOW + Web + MQTT) |
+
+Details siehe [docs/espnow.de.md](docs/espnow.de.md).
