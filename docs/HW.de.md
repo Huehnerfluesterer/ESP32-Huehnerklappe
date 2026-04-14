@@ -37,7 +37,6 @@
 | **RGBW+WW LED-Strip 12 V** | 5 Kanäle: R, G, B, W, WW | nach Bedarf |
 | **ACS712 (5 A)** | Stromsensor für Motorblockade-Erkennung | 1 |
 | **Endschalter / Mikroschalter** | Für genaue Positionserkennung | 2 |
-| **TPL5110** | Hardware-Watchdog, 33 kΩ an DELAY-Pin | 1 |
 | **BME280** | Temperatur/Feuchte-Sensor (lokal oder via ESP-NOW) | 1 |
 | **Gehäuse IP65** | Wetterfester Anschlusskasten | 1 |
 
@@ -190,19 +189,7 @@ ESP32 GPIO ────────── Gate ┐
 
 ---
 
-### 7 · Hardware-Watchdog TPL5110
-
-```
-TPL5110 VDD  ──── 3,3 V
-TPL5110 GND  ──── GND
-TPL5110 DRV  ──── ESP32-S3 EN-Pin  (Reset-Leitung)
-TPL5110 DONE ──── ESP32-S3 GPIO 6
-33 kΩ        ──── DELAY-Pin → GND  (≈ 50 s Timeout)
-```
-
----
-
-### 8 · Endschalter (optional)
+### 7 · Endschalter (optional)
 
 ```
 Endschalter AUF   Pin 1 ──── ESP32-S3 GPIO 14

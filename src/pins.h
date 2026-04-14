@@ -51,5 +51,3 @@
 // Relais-Logik (aktiv LOW)
 #define RELAY_ON  LOW
 #define RELAY_OFF HIGH
-
-#define TPL5110_DONE_PIN  6   // Hardware-Watchdog
