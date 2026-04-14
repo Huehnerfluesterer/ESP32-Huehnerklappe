@@ -20,7 +20,6 @@ Automatische Hühnerklappe auf Basis des **ESP32-S3-DevKitC-1-N16R8**.
 | Relais Locklicht | 5 V, **HIGH-aktiv** (Jumper auf Active HIGH) |
 | Relais Stalllicht | 5 V, **HIGH-aktiv** (Jumper auf Active HIGH) |
 | Versorgung | 12 V DC → LM2596 5 V → onboard 3,3 V |
-| Hardware-Watchdog | TPL5110 (DONE = GPIO 6, DRV → EN-Pin, ~50 s Timeout) |
 
 ---
 
@@ -49,7 +48,6 @@ Automatische Hühnerklappe auf Basis des **ESP32-S3-DevKitC-1-N16R8**.
 | RGB_PIN_B | 17 | IRLZ44N Gate, 10 kΩ Pull-down |
 | RGB_PIN_W | 21 | IRLZ44N Gate, 10 kΩ Pull-down |
 | RGB_PIN_WW | (konfigurierbar) | IRLZ44N Gate, 10 kΩ Pull-down |
-| TPL5110_DONE | 6 | Hardware-Watchdog Pulse |
 
 ---
 
