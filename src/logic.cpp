@@ -248,10 +248,11 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
     // ===== ZEITMODUS ÖFFNEN =====
     if (automatikErlaubt && !learningActive && !doorOpen && !nightLock)
     {
-        // Zeitfenster ±1 Minute – verhindert dass eine kurze Loop-Blockade die Öffnung verpasst
+        // Zeitfenster 0 bis +1 Minute – verhindert dass Loop-Blockade die Öffnung verpasst
+        // Nur NACH der eingestellten Zeit, nie davor
         int openTargetMin = timeToMinutes(openTime);
-        int openDiff = abs(nowMin - openTargetMin);
-        if (openDiff > 720) openDiff = 1440 - openDiff;  // Mitternacht-Übergang
+        int openDiff = nowMin - openTargetMin;
+        if (openDiff < 0) openDiff += 1440;  // Mitternacht-Übergang
         if ((openMode == "time" || (openMode == "light" && !lightAutomationAvailable)) &&
             openDiff <= 1 && lastOpenActionMin != openTargetMin)
         {
@@ -265,6 +266,7 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
                 preLightCloseDone   = false;
                 preLightOpenDone    = false;
                 relaySendOn();
+                // Kein Override nötig – inCloseWindow sperrt automatisches Schließen vor 15:00
             }
         }
     }
@@ -272,15 +274,19 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
     // ===== ZEITMODUS SCHLIESSEN =====
     if (automatikErlaubt && !learningActive && doorOpen)
     {
+        // Zeitfenster 0 bis +1 Minute – nur NACH der eingestellten Zeit
+        int closeTargetMin = timeToMinutes(closeTime);
+        int closeDiff = nowMin - closeTargetMin;
+        if (closeDiff < 0) closeDiff += 1440;
         if ((closeMode == "time" || (closeMode == "light" && !lightAutomationAvailable)) &&
-            nowMin == timeToMinutes(closeTime) && lastCloseActionMin != nowMin)
+            closeDiff <= 1 && lastCloseActionMin != closeTargetMin && inCloseWindow)
         {
             if (motorState == MOTOR_STOPPED)
             {
                 doorPhase   = PHASE_CLOSING;
                 motorReason = (closeMode == "light" && !lightAutomationAvailable) ? "Zeit-Fallback" : "Zeitautomatik";
                 startMotorClose(closePosition);
-                lastCloseActionMin = nowMin;
+                lastCloseActionMin = closeTargetMin;
                 addLog("Schließvorgang gestartet (" + motorReason + ")");
                 preLightOpenDone = false;
                 relaySendOff();
@@ -379,10 +385,10 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
     // eigenes Fenster über closeTime.
     const int closeRiseThreshold = closeLightThreshold + CLOSE_HYSTERESIS_LX;
 
-    // Schließen per Lichtsensor – erst nach 60s Uptime und wenn Sensor bereit
+    // Schließen per Lichtsensor – erst nach 60s Uptime, wenn Sensor bereit UND im Zeitfenster
     if (!actionLock && doorOpen && motorState == MOTOR_STOPPED &&
         lightAutomationAvailable && luxReady && nowMs > 60000UL &&
-        lux <= closeLightThreshold)
+        lux <= closeLightThreshold && inCloseWindow)
     {
         closeInterruptionSince = 0;
         if (lightBelowSince == 0) lightBelowSince = nowMs;

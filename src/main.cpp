@@ -392,6 +392,11 @@ void setup()
         else { rgbRedOn(); server.send(200, "text/plain", "ON"); }
     });
 
+    server.on("/clear-override", HTTP_POST, []() {
+        manualOverrideUntil = 0;
+        server.send(200, "text/plain", "OK");
+    });
+
     server.on("/live-rgb", HTTP_POST, []() {
         if (server.hasArg("r") && server.hasArg("br")) {
             uint8_t r  = constrain(server.arg("r").toInt(),  0, 255);

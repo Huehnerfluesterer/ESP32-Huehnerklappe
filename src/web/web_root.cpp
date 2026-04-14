@@ -1,6 +1,7 @@
 #include "web.h"
 #include "../storage.h"
 #include "../door.h"
+#include "../logic.h"
 #include "../motor.h"
 #include "../light.h"
 #include "../lux.h"
@@ -70,6 +71,7 @@ async function debounceAction(btn,fn){ if(!btn)return; btn.disabled=true; try{aw
 async function toggleLockLight(){ const b=document.getElementById('lockLightBtn'); await debounceAction(b,async()=>{await fetch('/light',{cache:'no-store'});await update();}); }
 async function toggleStallLight(){ const b=document.getElementById('stallLightBtn'); await debounceAction(b,async()=>{await fetch('/stalllight',{cache:'no-store'});await update();}); }
 async function toggleDoor(){ const b=document.getElementById('doorBtn'); await debounceAction(b,async()=>{await fetch('/door',{cache:'no-store'});await update();}); }
+async function clearOverride(){await fetch('/clear-override',{method:'POST'});await update();}
 async function toggleRGB(){ const b=document.getElementById('rgbBtn'); await debounceAction(b,async()=>{await fetch('/rgbred',{cache:'no-store'});await update();}); }
 async function setRedBright(v){document.getElementById('redBrightVal').innerText=v;const fd=new FormData();fd.append('v',v);await fetch('/red-brightness',{method:'POST',body:fd});}
 function setDoorButton(label,cls){ const b=document.getElementById('doorBtn'); if(!b)return; b.textContent=label; b.classList.remove('btn-open','btn-close','btn-stop'); b.classList.add(cls); }
@@ -94,8 +96,10 @@ document.addEventListener('DOMContentLoaded',()=>{update();setInterval(update,30
     </div>
     <div class="status-row"><span class="label">Locklicht:</span>      <span id="lightState" class="badge closed">---</span></div>
     <div class="status-row"><span class="label">Stalllicht:</span>     <span id="stallLight" class="badge closed">---</span></div>
-    <div class="status-row"><span class="label">Rotlicht:</span>    <span id="rgbred"  class="badge closed">---</span></div>
+    <div class="status-row"><span class="label">RGB Test:</span>    <span id="rgbred"  class="badge closed">---</span></div>
     <div class="status-row"><span class="label">Betriebsart:</span>    <span id="automatik">---</span></div>
+    <div class="status-row"><span class="label">Schließfenster:</span> <span id="closeWindow" style="font-size:13px;">---</span></div>
+    <div class="status-row" id="overrideRow" style="display:none;"><span class="label" style="color:#e67e22;">⏸ Automatik pausiert:</span> <span id="overrideUntil" style="color:#e67e22;font-size:13px;">---</span>&nbsp;<button onclick="clearOverride()" style="font-size:11px;padding:2px 8px;border:1px solid #e67e22;border-radius:6px;background:none;color:#e67e22;cursor:pointer;">Freigeben</button></div>
     <div class="status-row"><span class="label">Helligkeit:</span>     <span id="light">---</span></div>
     <div class="status-row" id="statsRow" style="display:none;"><span class="label">Heute:</span><span id="statsText" style="font-size:12px;color:var(--muted);">---</span></div>
     <div class="next-section"><div class="next-title">Nächste Aktion:</div><div id="next" class="next-value-full">---</div></div>
@@ -138,6 +142,17 @@ async function update(){
     else if(isOpen) setDoorButton("Schließen","btn-close");
     else            setDoorButton("Öffnen","btn-open");
     if(d.automatik!==last.automatik){document.getElementById('automatik').innerText=d.automatik;last.automatik=d.automatik;}
+    if(d.closeWindowActive!==undefined){
+      const el=document.getElementById('closeWindow');
+      if(d.closeWindowActive){el.innerText='✅ Aktiv ('+d.closeWindowStart+':00–'+d.closeWindowEnd+':00 Uhr)';el.style.color='var(--green)';}
+      else{el.innerText='⏳ Gesperrt – erlaubt ab '+d.closeWindowStart+':00 Uhr';el.style.color='#e67e22';}
+    }
+    const overrideRow=document.getElementById('overrideRow');
+    if(d.overrideSec && d.overrideSec>0){
+      overrideRow.style.display='flex';
+      const m=Math.floor(d.overrideSec/60),s=d.overrideSec%60;
+      document.getElementById('overrideUntil').innerText='noch '+m+'m '+s+'s';
+    } else { overrideRow.style.display='none'; }
     if(d.next!==last.next){document.getElementById('next').innerText=d.next;last.next=d.next;}
     if(d.light!==last.light){document.getElementById('light').innerText=d.light;last.light=d.light;}
     const statsRow = document.getElementById('statsRow');
@@ -205,7 +220,12 @@ void handleStatus()
         doorPct = (int)constrain(100 - (long)elapsed * 100 / closePosition, 1, 100);
     }
     doc["doorPct"] = doorPct;
-    doc["automatik"]     = automatik;
+    doc["automatik"]         = automatik;
+    doc["closeWindowActive"]  = (nowDT.hour() >= CLOSE_WINDOW_START_H && nowDT.hour() <= CLOSE_WINDOW_END_H);
+    doc["closeWindowStart"]   = CLOSE_WINDOW_START_H;
+    doc["closeWindowEnd"]     = CLOSE_WINDOW_END_H;
+    unsigned long nowMs2 = millis();
+    doc["overrideSec"] = (manualOverrideUntil > nowMs2) ? (int)((manualOverrideUntil - nowMs2) / 1000) : 0;
     doc["next"]          = next;
     doc["light"]         = (isfinite(lux) && lux >= 0.0f) ? String(lux, 1) + " lx" : "n/a";
     doc["lightFallback"] = (!lightAutomationAvailable && (openMode == "light" || closeMode == "light")) ? "1" : "0";
