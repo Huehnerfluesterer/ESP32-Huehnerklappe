@@ -63,7 +63,6 @@
 | **GPIO 16** | RGB Grün (PWM) | IRLZ44N Gate | 10 kΩ Pull-down |
 | **GPIO 17** | RGB Blau (PWM) | IRLZ44N Gate | 10 kΩ Pull-down |
 | **GPIO 21** | RGB Weiß (PWM) | IRLZ44N Gate | 10 kΩ Pull-down |
-| **GPIO 6** | TPL5110 DONE | Hardware-Watchdog | Pulse alle 20 s |
 
 ---
 
