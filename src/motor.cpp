@@ -137,6 +137,9 @@ void startMotorOpen(unsigned long durationMs)
 
 void startMotorClose(unsigned long durationMs)
 {
+    // Sofort als geschlossen markieren – verhindert Doppel-Schließen nach TPL5110-Reset
+    doorOpen = false;
+    saveDoorState();
     motorClose();
     motorState        = MOTOR_CLOSING;
     motorUntil        = millis() + durationMs;

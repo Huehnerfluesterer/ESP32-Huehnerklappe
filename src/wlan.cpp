@@ -7,7 +7,7 @@
 #include <Arduino.h>
 #include "config.h"
 
-#define MDNS_HOSTNAME  "klappe"   // → http://klappe.local
+#define MDNS_HOSTNAME  "esp"   // → http://klappe.local
 
 static unsigned long lastWifiCheck    = 0;
 static unsigned long wifiBackoffMs    = 0;

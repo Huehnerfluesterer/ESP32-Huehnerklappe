@@ -31,10 +31,12 @@ unsigned long plannedCloseAt    = 0;
 // ==================================================
 void updateButton()
 {
-    static int lastRaw    = HIGH;
-    static int stable     = HIGH;
-    static unsigned long lastChange = 0;
-    const unsigned long DEBOUNCE_MS = 30;
+    static int lastRaw       = HIGH;
+    static int stable        = HIGH;
+    static unsigned long lastChange  = 0;
+    static unsigned long pressStart  = 0;
+    const unsigned long DEBOUNCE_MS  = 50;   // war 30ms
+    const unsigned long HOLD_MIN_MS  = 150;  // Mindest-Haltezeit – filtert Störimpulse
 
     extern unsigned long bootTime;
     int raw = digitalRead(BUTTON_PIN);
@@ -42,8 +44,15 @@ void updateButton()
     if ((millis() - lastChange) > DEBOUNCE_MS && raw != stable)
     {
         stable = raw;
-        if (stable == LOW && millis() - bootTime > 500)
-            handleButtonPress();
+        if (stable == LOW && millis() - bootTime > 2000) {
+            pressStart = millis();  // Druckbeginn merken
+        }
+        if (stable == HIGH && pressStart > 0) {
+            // Nur auslösen wenn Taste lang genug gehalten wurde
+            if (millis() - pressStart >= HOLD_MIN_MS)
+                handleButtonPress();
+            pressStart = 0;
+        }
     }
 }
 
@@ -63,7 +72,7 @@ void updateStallButton()
     if ((millis() - lastChange) > DEBOUNCE_MS && raw != stable)
     {
         stable = raw;
-        if (stable == LOW && millis() - bootTime > 500)
+        if (stable == LOW && millis() - bootTime > 3000)
         {
             if (stallLightActive) stallLightOff();
             else stallLightOn();
@@ -144,33 +153,68 @@ void handleButtonPress()
         actionLock          = true;
         preLightCloseDone   = false;
         preLightOpenDone    = false;
-        manualOverrideUntil = millis() + 900000UL;  // 15 Minuten Override
-        lightBelowSince     = 0;   // Schließtimer zurücksetzen
-        nightLock           = false; // Nacht-Sperre aufheben
-        addLog("Öffnung gestartet (Taster) – Automatik pausiert 15 min");
+        manualOverrideUntil = millis() + 300000UL;  // 5 Minuten Override
+        lightBelowSince     = 0;
+        nightLock           = false;
+        addLog("Öffnung gestartet (Taster) – Automatik pausiert 5 min");
     }
 }
 
 // ==================================================
-// TASTER ROTLICHT
+// TASTER ROTLICHT  –  Kurz: Locklicht  |  Lang: Rotlicht
 // ==================================================
 void updateRedButton()
 {
-    static int lastRaw    = HIGH;
-    static int stable     = HIGH;
-    static unsigned long lastChange = 0;
-    const unsigned long DEBOUNCE_MS = 30;
+    static int           lastRaw       = HIGH;
+    static int           stable        = HIGH;
+    static unsigned long lastChange    = 0;
+    static unsigned long pressedAt     = 0;
+    static bool          longFired     = false;
+
+    const unsigned long  DEBOUNCE_MS   = 30;
+    const unsigned long  LONG_PRESS_MS = 700;
 
     extern unsigned long bootTime;
     int raw = digitalRead(RED_BUTTON_PIN);
+
     if (raw != lastRaw) { lastChange = millis(); lastRaw = raw; }
-    if ((millis() - lastChange) > DEBOUNCE_MS && raw != stable)
+
+    if ((millis() - lastChange) > DEBOUNCE_MS)
     {
-        stable = raw;
-        if (stable == LOW && millis() - bootTime > 500)
+        if (raw != stable)
         {
-            if (rgbRedActive) rgbRedOff();
-            else              rgbRedOn();
+            // --- Flankenwechsel ---
+            stable = raw;
+            if (stable == LOW && millis() - bootTime > 3000)
+            {
+                // Taste gedrueckt: Zeitstempel merken
+                pressedAt = millis();
+                longFired = false;
+            }
+            else if (stable == HIGH && !longFired)
+            {
+                // Kurzdruck: Taste losgelassen bevor Langdruck ausgeloest
+                if (rgbRedActive) {
+                    rgbRedOff();                          // Rotlicht aus
+                } else if (manualLightActive) {
+                    manualLightActive = false;            // Locklicht aus
+                    lightOff();
+                    lightActive = false;
+                } else {
+                    manualLightActive = true;             // Locklicht ein
+                    lightOn();
+                    lightActive = true;
+                }
+            }
+        }
+        else if (stable == LOW && !longFired &&
+                 millis() - bootTime > 3000 &&
+                 millis() - pressedAt >= LONG_PRESS_MS)
+        {
+            // Langdruck: Taste laenger als 700ms gehalten
+            longFired = true;
+            if (!stallLightActive && !rgbRedActive)
+                rgbRedOn();
         }
     }
 }

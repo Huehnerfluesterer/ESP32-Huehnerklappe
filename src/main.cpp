@@ -1,7 +1,7 @@
 // ==========================
 // FIRMWARE VERSION
 // ==========================
-const char *FW_VERSION = "1.0.16";
+const char *FW_VERSION = "3.0.16";
 
 // ==========================
 // INCLUDES
@@ -16,6 +16,7 @@ const char *FW_VERSION = "1.0.16";
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <PubSubClient.h>
+#include "esp_task_wdt.h"
 
 #include "pins.h"
 #include "types.h"
@@ -28,12 +29,14 @@ const char *FW_VERSION = "1.0.16";
 #include "door.h"
 #include "logic.h"
 #include "mqtt.h"
+#include "telegram.h"
 #include "wlan.h"
 #include "bme.h"
 #include "relay.h"
 #include "espnow_dispatch.h"
 #include "web/web.h"
 #include "icons.h"       // icon192_png / icon512_png PROGMEM-Arrays
+#include "statusled.h"   // WS2812 Status-LED (IO48)
 
 // ==========================
 // GLOBALE OBJEKTE
@@ -69,6 +72,7 @@ void setup()
 
     // ===== EINSTELLUNGEN LADEN =====
     loadMqttSettings();
+    loadTelegramSettings();
     loadSettings();
     loadDoorState();
     loadMotorPositions();
@@ -93,6 +97,7 @@ void setup()
 
     // ===== RGB + MOTOR =====
     lightInit();
+    statusLedInit();   // Status-LED (WS2812 IO48) initialisieren
     motorInit();
     digitalWrite(MOTOR_IN1, LOW);
     digitalWrite(MOTOR_IN2, LOW);
@@ -118,7 +123,8 @@ void setup()
         unsigned long t0 = millis();
         while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
             delay(50);
-            digitalWrite(TPL5110_DONE_PIN, HIGH); delayMicroseconds(100); digitalWrite(TPL5110_DONE_PIN, LOW);
+            esp_task_wdt_reset();   // WDT während WLAN-Connect am Leben halten
+            statusLedUpdate();   // Gelbes Blinken während WiFi-Connect sichtbar machen
         }
         if (WiFi.status() == WL_CONNECTED)
             Serial.printf("✅ WLAN verbunden – Kanal %d  IP: %s\n", WiFi.channel(), WiFi.localIP().toString().c_str());
@@ -151,6 +157,9 @@ void setup()
 
     // ===== MQTT =====
     mqttSetup();
+
+    // ===== TELEGRAM =====
+    telegramInit();
 
     // ===== WEBSERVER ROUTEN =====
     server.on("/",              handleRoot);
@@ -295,6 +304,9 @@ void setup()
     server.on("/systemtest", HTTP_GET,  handleSelftest);
     server.on("/mqtt",       HTTP_GET,  handleMqtt);
     server.on("/save-mqtt",  HTTP_POST, handleSaveMqtt);
+    server.on("/telegram",      HTTP_GET,  handleTelegram);
+    server.on("/save-telegram", HTTP_POST, handleSaveTelegram);
+    server.on("/telegram-test", HTTP_POST, handleTelegramTest);
     server.on("/calibration",   handleCalibration);
     server.on("/learn",         handleLearn);
     server.on("/learn-page",    handleLearnPage);
@@ -624,6 +636,7 @@ void loop()
     // Während OTA-Upload: nur WebServer, kein delay, keine Logik
     // Während OTA-Upload: nur WebServer, kein delay, keine Logik
     if (otaInProgress) {
+        statusLedOta();   // Blaues Lauflicht während OTA
         return;
     }
 
@@ -763,6 +776,12 @@ void loop()
 
     runAutomatik(now, nowMin, nowMs, luxValid, luxReady, luxRateFiltered);
 
+    // ===== TELEGRAM DEADLINE =====
+    telegramDeadlineCheck();
+
     // ===== LICHT-ZUSTANDSMASCHINE =====
     updateLightState();
+
+    // ===== STATUS-LED =====
+    statusLedUpdate();
 }

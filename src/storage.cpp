@@ -13,6 +13,7 @@
 // ==================================================
 Settings     settings;
 MqttSettings mqttSettings;
+TelegramSettings telegramSettings;
 
 String openMode  = "time";
 String closeMode = "time";
@@ -139,6 +140,40 @@ void loadMqttSettings()
     // Port-Sanity (65535 = uninitialisiert)
     if (mqttSettings.port == 0 || mqttSettings.port == 65535)
         mqttSettings.port = 1883;
+}
+
+// ==================================================
+// TELEGRAM
+// ==================================================
+void saveTelegramSettings()
+{
+    EEPROM.put(EEPROM_ADDR_TELEGRAM, telegramSettings);
+    EEPROM.commit();
+}
+
+void loadTelegramSettings()
+{
+    EEPROM.get(EEPROM_ADDR_TELEGRAM, telegramSettings);
+
+    // Sanity: Token muss druckbares ASCII sein, sonst Defaults
+    bool ok = true;
+    for (size_t i = 0; i < sizeof(telegramSettings.token); i++) {
+        char c = telegramSettings.token[i];
+        if (c == '\0') break;
+        if (c < 32 || c > 126) { ok = false; break; }
+    }
+    if (!ok ||
+        telegramSettings.deadlineH > 23 ||
+        telegramSettings.deadlineM > 59)
+    {
+        memset(&telegramSettings, 0, sizeof(telegramSettings));
+        telegramSettings.enabled     = false;
+        telegramSettings.deadlineH   = 9;
+        telegramSettings.deadlineM   = 0;
+        telegramSettings.notifyOpen  = true;
+        telegramSettings.notifyClose = true;
+        saveTelegramSettings();
+    }
 }
 
 // ==================================================

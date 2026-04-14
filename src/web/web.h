@@ -30,6 +30,11 @@ void handleSelftest();
 void handleMqtt();
 void handleSaveMqtt();
 
+// Telegram
+void handleTelegram();
+void handleSaveTelegram();
+void handleTelegramTest();
+
 // Kalibrierung / Einlernen
 void handleCalibration();
 void handleLearn();

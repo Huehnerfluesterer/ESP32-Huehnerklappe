@@ -61,6 +61,49 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
             automatikErlaubt, luxValid, luxReady, lightAutomationAvailable, lux, closeLightThreshold, doorOpen, actionLock);
     }
 
+    // ===== CATCH-UP nach Reboot: verpasste Aktion nachholen =====
+    static bool catchUpDone = false;
+    if (!catchUpDone && nowMs > 30000UL && nowMs < 600000UL)
+    {
+        catchUpDone = true;
+        // Verpasste Öffnung nachholen (Zeitmodus)
+        if (!doorOpen && openMode == "time" && automatikErlaubt)
+        {
+            int openTargetMin = timeToMinutes(openTime);
+            int missedDiff = nowMin - openTargetMin;
+            if (missedDiff < 0) missedDiff += 1440;
+            if (missedDiff > 0 && missedDiff <= 10)
+            {
+                doorPhase   = PHASE_OPENING;
+                motorReason = "Zeitautomatik (Catch-up nach Reboot)";
+                startMotorOpen(openPosition);
+                actionLock        = true;
+                lastOpenActionMin = openTargetMin;
+                preLightCloseDone = false;
+                preLightOpenDone  = false;
+                relaySendOn();
+                addLog("🔁 Catch-up: Öffnung nachgeholt nach Reboot (" + String(missedDiff) + " Min verspätet)");
+            }
+        }
+        // Verpasste Schließung nachholen (Zeitmodus, nur im Schließfenster)
+        const bool inCloseWindowCatchUp = (now.hour() >= CLOSE_WINDOW_START_H && now.hour() <= CLOSE_WINDOW_END_H);
+        if (doorOpen && closeMode == "time" && automatikErlaubt && inCloseWindowCatchUp)
+        {
+            int closeTargetMin = timeToMinutes(closeTime);
+            int missedDiff = nowMin - closeTargetMin;
+            if (missedDiff < 0) missedDiff += 1440;
+            if (missedDiff > 0 && missedDiff <= 10)
+            {
+                doorPhase   = PHASE_CLOSING;
+                motorReason = "Zeitautomatik (Catch-up nach Reboot)";
+                startMotorClose(closePosition);
+                lastCloseActionMin = closeTargetMin;
+                addLog("🔁 Catch-up: Schließung nachgeholt nach Reboot (" + String(missedDiff) + " Min verspätet)");
+                relaySendOff();
+            }
+        }
+    }
+
     // ===== SAFETY: actionLock zurücksetzen wenn Motor schon steht =====
     // Verhindert dauerhaften Automatik-Block wenn z.B. ein Web-/MQTT-Toggle
     // eintraf während die Tür bereits in der gewünschten Position war und der

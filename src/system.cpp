@@ -4,8 +4,10 @@
 #include "motor.h"
 #include "logger.h"
 #include "pins.h"
+#include "storage.h"   // mqttSettings.enabled
 #include <WiFi.h>
 #include <Arduino.h>
+#include "esp_task_wdt.h"
 
 // Forward-Deklarationen aus mqtt.cpp
 void mqttPublishAvailability(const char *state);
@@ -24,10 +26,17 @@ bool errorWifi      = false;
 bool errorMQTT      = false;
 bool errorSensor    = false;
 
-// Software-Watchdog
-static unsigned long lastLoopFeed  = 0;
-static bool          wdogArmed     = false;
-#define WDOG_TIMEOUT_MS  15000UL   // 90 Sekunden – dann Neustart
+// ==================================================
+// HARDWARE-WATCHDOG (ESP32 Task-WDT)
+// ==================================================
+// Ersetzt den früheren TPL5110-Hardware-Watchdog. Der ESP32-S3 hat einen
+// internen Watchdog im RTC-Bereich, der unabhängig von der CPU läuft.
+// Wird wdogFeed() länger als WDOG_TIMEOUT_MS nicht aufgerufen, kommt ein
+// sauberer Reset (Reset-Reason: ESP_RST_TASK_WDT).
+#define WDOG_TIMEOUT_MS  30000UL   // 30 s ohne Feed → Reset
+
+static unsigned long lastLoopFeed = 0;
+static bool          wdogArmed    = false;
 
 // ==================================================
 bool systemError()
@@ -35,39 +44,42 @@ bool systemError()
     return errorWifi || errorMQTT || errorSensor;
 }
 
+// Funktionsname bewusst beibehalten, damit main.cpp unverändert bleibt.
 void tpl5110Init()
 {
-    pinMode(TPL5110_DONE_PIN, OUTPUT);
-    digitalWrite(TPL5110_DONE_PIN, LOW);
-    Serial.println("✅ TPL5110 Hardware-Watchdog aktiv (GPIO " + String(TPL5110_DONE_PIN) + ")");
+#if ESP_IDF_VERSION_MAJOR >= 5
+    // Arduino-ESP32 v3.x / ESP-IDF v5.x – neue Struct-API
+    esp_task_wdt_config_t cfg = {
+        .timeout_ms     = WDOG_TIMEOUT_MS,
+        .idle_core_mask = 0,
+        .trigger_panic  = true,
+    };
+    if (esp_task_wdt_reconfigure(&cfg) == ESP_ERR_INVALID_STATE) {
+        esp_task_wdt_init(&cfg);
+    }
+#else
+    // Arduino-ESP32 v2.x / ESP-IDF v4.x – alte API (Sekunden, bool)
+    esp_task_wdt_init(WDOG_TIMEOUT_MS / 1000, true);
+#endif
+    esp_task_wdt_add(NULL);   // aktuelle (Loop-)Task überwachen
+    Serial.printf("✅ Task-Watchdog aktiv (Timeout %lu ms)\n", WDOG_TIMEOUT_MS);
 }
-
-static unsigned long lastTplFeed = 0;
 
 void wdogFeed()
 {
     lastLoopFeed = millis();
     wdogArmed    = true;
-    if (millis() - lastTplFeed >= 20000UL) {
-        lastTplFeed = millis();
-        digitalWrite(TPL5110_DONE_PIN, HIGH);
-        delayMicroseconds(100);
-        digitalWrite(TPL5110_DONE_PIN, LOW);
-    }
+    esp_task_wdt_reset();
 }
 
 void updateSystemHealth()
 {
     errorWifi   = (WiFi.status() != WL_CONNECTED);
+    errorMQTT   = (mqttSettings.enabled && !mqttClientConnected());
     errorSensor = (!hasVEML || vemlHardError);
 
-    // Software-Watchdog prüfen
-    if (wdogArmed && (millis() - lastLoopFeed > WDOG_TIMEOUT_MS)) {
-        // Loop hat 90s nicht reagiert – Neustart
-        addLog("⚠️ Watchdog: Loop-Timeout – Neustart");
-        delay(500);
-        ESP.restart();
-    }
+    // Watchdog läuft jetzt in Hardware (esp_task_wdt) – nichts zu tun
+    (void)lastLoopFeed; (void)wdogArmed;
 }
 
 // ==================================================

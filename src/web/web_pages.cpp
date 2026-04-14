@@ -8,6 +8,7 @@
 #include "../logger.h"
 #include <RTClib.h>
 #include "../mqtt.h"
+#include "../telegram.h"
 #include "../pins.h"
 #include "../bme.h"
 #include "../relay.h"
@@ -37,6 +38,7 @@ void handleAdvanced()
     <button onclick="location.href='/systemtest'" class="btn-open">🧪 Systemtest</button>
     <button onclick="location.href='/simulation'" class="btn-open" style="margin-top:8px;">🕐 Zeitoffset-Simulation</button>
     <button onclick="location.href='/mqtt'"        class="btn-open">📡 MQTT Einstellungen</button>
+    <button onclick="location.href='/telegram'"    class="btn-open">📱 Telegram</button>
     <button onclick="location.href='/espnow'"      class="btn-open">📶 ESP-NOW Geräte</button>
     <button onclick="location.href='/rgb'"         class="btn-open">🎨 Lichtfarbe & Helligkeit</button>
     <button onclick="location.href='/calibration'" class="btn-open">🎯 Kalibrierung</button>
@@ -670,6 +672,128 @@ void handleSaveMqtt()
     server.sendHeader("Location", "/mqtt");
     server.send(303);
 }
+
+// ==================================================
+// TELEGRAM EINSTELLUNGEN
+// ==================================================
+static void readTelegramForm()
+{
+    telegramSettings.enabled     = server.hasArg("enabled");
+    telegramSettings.notifyOpen  = server.hasArg("nOpen");
+    telegramSettings.notifyClose = server.hasArg("nClose");
+    strncpy(telegramSettings.token,  server.arg("token").c_str(),  sizeof(telegramSettings.token)  - 1);
+    telegramSettings.token[sizeof(telegramSettings.token)  - 1] = '\0';
+    strncpy(telegramSettings.chatId, server.arg("chatId").c_str(), sizeof(telegramSettings.chatId) - 1);
+    telegramSettings.chatId[sizeof(telegramSettings.chatId) - 1] = '\0';
+    int h = server.arg("dh").toInt(), m = server.arg("dm").toInt();
+    telegramSettings.deadlineH = (uint8_t)constrain(h, 0, 23);
+    telegramSettings.deadlineM = (uint8_t)constrain(m, 0, 59);
+}
+
+void handleTelegram()
+{
+    String html = renderThemeHead("Telegram");
+    html += R"rawliteral(
+<div class="header"><h3>📱 Telegram</h3></div>
+<div class="container">
+  <div class="card">
+    <form method="POST" action="/save-telegram">
+      <div class="section">
+        <div class="section-title">🔌 Verbindung</div>
+        <div class="field"><label><input type="checkbox" name="enabled" %TG_ENABLED%> Telegram aktivieren</label></div>
+        <div class="field"><label>Bot-Token</label>
+          <div class="password-wrapper">
+            <input id="tgToken" name="token" type="password" value="%TG_TOKEN%" placeholder="123456789:ABC...">
+            <button type="button" onclick="togglePass()" class="eye-btn">👁</button>
+          </div>
+        </div>
+        <div class="field"><label>Chat-ID</label><input name="chatId" value="%TG_CHAT%" placeholder="z.B. 12345678 oder -100..."></div>
+      </div>
+      <div class="section">
+        <div class="section-title">⏰ Alarm-Deadline</div>
+        <div class="row">
+          <div class="field"><label>Stunde</label><input name="dh" type="number" min="0" max="23" value="%TG_DH%"></div>
+          <div class="field"><label>Minute</label><input name="dm" type="number" min="0" max="59" value="%TG_DM%"></div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;">Ist die Klappe zu dieser Uhrzeit noch geschlossen, wird ein Alarm gesendet.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">📨 Benachrichtigungen</div>
+        <div class="field"><label><input type="checkbox" name="nOpen"  %TG_NO%> Nachricht beim Öffnen</label></div>
+        <div class="field"><label><input type="checkbox" name="nClose" %TG_NC%> Nachricht beim Schließen</label></div>
+      </div>
+      <button type="button" onclick="tgTest()" class="btn-test">🧪 Testnachricht senden</button>
+      <div id="tgRes" style="margin-top:8px;font-size:13px;font-weight:600;text-align:center;"></div>
+      <button type="submit" class="btn-open">💾 Speichern</button>
+    </form>
+    <p style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.5;">
+      <b>Einrichtung:</b><br>
+      1. In Telegram <b>@BotFather</b> anschreiben → <code>/newbot</code> → Token kopieren<br>
+      2. Den neuen Bot selbst anschreiben (mindestens eine Nachricht)<br>
+      3. <b>@userinfobot</b> anschreiben → eigene Chat-ID kopieren<br>
+      4. Token + Chat-ID hier eintragen, aktivieren und testen
+    </p>
+  </div>
+</div>
+<style>
+.section{margin-bottom:20px;}
+.password-wrapper{display:flex;align-items:center;gap:8px;}
+.password-wrapper input{flex:1;}
+.eye-btn{width:38px;height:38px;border-radius:12px;padding:0;margin:0;background:var(--green);color:white;font-size:16px;border:none;}
+.btn-test{background:var(--orange);width:60%;margin:14px auto 0 auto;display:block;padding:8px 12px;font-size:14px;border-radius:12px;color:white;border:none;}
+.section-title{font-size:13px;font-weight:600;text-transform:uppercase;margin-bottom:12px;color:var(--muted);}
+.row{display:flex;gap:12px;}
+.field{display:flex;flex-direction:column;margin-top:10px;}
+.row .field{flex:1;}
+label{font-size:13px;margin-bottom:6px;color:var(--muted);}
+input[type=text],input[type=password],input[type=number]{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #e5e7eb;background:var(--card);color:var(--text);height:38px;box-sizing:border-box;}
+code{background:rgba(0,0,0,0.08);padding:1px 5px;border-radius:4px;font-size:11px;}
+</style>
+<script>
+function togglePass(){const p=document.getElementById("tgToken");p.type=(p.type==="password")?"text":"password";}
+function tgTest(){
+  const r=document.getElementById("tgRes");r.innerHTML="⏳ Sende...";r.style.color="var(--muted)";
+  fetch("/telegram-test",{method:"POST",body:new FormData(document.querySelector("form"))})
+    .then(x=>x.text()).then(t=>{
+      if(t==="OK"){r.innerHTML="✅ Nachricht gesendet";r.style.color="var(--green)";}
+      else{r.innerHTML="❌ "+t;r.style.color="var(--red)";}
+    }).catch(()=>{r.innerHTML="❌ Fehler";r.style.color="var(--red)";});
+}
+</script>
+)rawliteral";
+
+    html += renderFooter();
+    html.replace("%TG_ENABLED%", telegramSettings.enabled     ? "checked" : "");
+    html.replace("%TG_NO%",      telegramSettings.notifyOpen  ? "checked" : "");
+    html.replace("%TG_NC%",      telegramSettings.notifyClose ? "checked" : "");
+    html.replace("%TG_TOKEN%",   String(telegramSettings.token));
+    html.replace("%TG_CHAT%",    String(telegramSettings.chatId));
+    html.replace("%TG_DH%",      String(telegramSettings.deadlineH));
+    html.replace("%TG_DM%",      String(telegramSettings.deadlineM));
+    server.send(200, "text/html; charset=UTF-8", html);
+}
+
+void handleSaveTelegram()
+{
+    readTelegramForm();
+    saveTelegramSettings();
+    addLog(String("Telegram ") + (telegramSettings.enabled ? "aktiviert" : "deaktiviert"));
+    server.sendHeader("Location", "/telegram");
+    server.send(303);
+}
+
+void handleTelegramTest()
+{
+    // Formular-Werte temporär anwenden (ohne zu speichern) und Test senden.
+    // So kann der User die Konfiguration prüfen, bevor er sie persistiert.
+    TelegramSettings backup = telegramSettings;
+    readTelegramForm();
+    telegramSettings.enabled = true;   // Test auch dann, wenn Haken noch nicht gesetzt
+    bool ok = telegramSendRaw("🧪 Testnachricht von der Hühnerklappe");
+    telegramSettings = backup;         // Originalzustand wiederherstellen
+    server.send(200, "text/plain", ok ? "OK" : "Senden fehlgeschlagen");
+}
+
 
 // ==================================================
 // KALIBRIERUNG

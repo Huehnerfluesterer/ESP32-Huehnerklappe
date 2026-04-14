@@ -4,6 +4,9 @@
 // Telegram initialisieren (einmalig in setup)
 void telegramInit();
 
+// Roh-Senden (gibt true bei Erfolg zurück) – auch für Test-Button
+bool telegramSendRaw(const String &text);
+
 // Nachricht senden
 void telegramSend(const String &msg);
 

@@ -57,3 +57,14 @@ struct MqttSettings
     char     clientId[32];
     char     base[32];
 };
+
+struct TelegramSettings
+{
+    bool    enabled;
+    char    token[48];     // Bot-Token (z.B. 123456789:ABCdef...)
+    char    chatId[24];    // Ziel-Chat-ID (ggf. negativ für Gruppen)
+    uint8_t deadlineH;     // Stunde: bis hier muss die Klappe offen sein (Alarm)
+    uint8_t deadlineM;     // Minute
+    bool    notifyOpen;    // Bei Öffnung Nachricht senden
+    bool    notifyClose;   // Bei Schließung Nachricht senden
+};

@@ -2,14 +2,14 @@
 #include "types.h"
 
 // EEPROM-Adressen
-#define EEPROM_SIZE             512
-#define EEPROM_MAGIC_ADDR       511    // letztes Byte: Magic-Prüfbyte
+#define EEPROM_SIZE             1024
+#define EEPROM_MAGIC_ADDR       1023   // letztes Byte: Magic-Prüfbyte
 #define EEPROM_MAGIC_VALUE      0xA7   // Wert = EEPROM wurde korrekt initialisiert
 #define EEPROM_ADDR_SETTINGS      0    // Settings-Struct
 #define EEPROM_ADDR_OPEN_POS    100    // long openPosition
 #define EEPROM_ADDR_CLOSE_POS   104    // long closePosition
 #define EEPROM_ADDR_LIMIT_SW    120    // bool useLimitSwitches
-#define EEPROM_ADDR_MQTT        200    // MqttSettings-Struct
+#define EEPROM_ADDR_MQTT        200    // MqttSettings-Struct (~171 Bytes)
 #define EEPROM_ADDR_DOORSTATE   400    // bool doorOpen
 #define EEPROM_ADDR_THEME       450    // char[10] theme
 #define EEPROM_ADDR_BLOCKADE    460    // bool blockadeEnabled (1) + float blockadeThresholdA (4)
@@ -17,10 +17,12 @@
 #define EEPROM_ADDR_RELAY       480    // bool relayEnabled (1) + uint8_t[6] relayMac (6)
 #define EEPROM_ADDR_RGB         490    // uint8_t r, g, b, w, brightness (5 Bytes)
 #define EEPROM_ADDR_CLOSE_DELAY 496    // uint8_t closeDelayMin (0–30 min)
+#define EEPROM_ADDR_TELEGRAM    600    // TelegramSettings (~77 Bytes)
 
 // Zugriff auf Settings (in storage.cpp definiert)
-extern Settings     settings;
-extern MqttSettings mqttSettings;
+extern Settings         settings;
+extern MqttSettings     mqttSettings;
+extern TelegramSettings telegramSettings;
 
 // Betriebseinstellungen (werden aus EEPROM geladen und im RAM gespiegelt)
 extern String openMode;
@@ -55,6 +57,10 @@ void applySettingsToRam();   // Struct → globale Variablen
 // MQTT-Einstellungen
 void saveMqttSettings();
 void loadMqttSettings();
+
+// Telegram-Einstellungen
+void saveTelegramSettings();
+void loadTelegramSettings();
 
 // Türzustand
 void saveDoorState();
