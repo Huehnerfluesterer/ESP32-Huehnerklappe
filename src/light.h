@@ -23,6 +23,7 @@ extern unsigned long stallLightOffTime;
 extern bool          rgbRedActive;
 extern uint8_t       rgbRedBrightness;       // war: ws2812RedActive
 
+extern bool          stallLightAutoOff;   // true = Timer aktiv, false = bleibt dauerhaft an
 extern bool          dimmingActive;
 extern unsigned long dimStartTime;
 extern unsigned long dimEndTime;

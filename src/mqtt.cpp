@@ -276,7 +276,7 @@ void mqttSetup()
     mqttClient.setCallback(mqttCallback);
     mqttClient.setBufferSize(1024);
     mqttClient.setKeepAlive(15);
-    mqttClient.setSocketTimeout(3);
+    mqttClient.setSocketTimeout(1);  // 1s statt 3s – blockiert sonst den WebServer
 }
 
 static void mqttEnsureConnected()

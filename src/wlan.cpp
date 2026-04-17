@@ -12,6 +12,7 @@
 static unsigned long lastWifiCheck    = 0;
 static unsigned long wifiBackoffMs    = 0;
 static unsigned long lastReconnectTry = 0;
+static bool          mdnsRunning      = false;  // mDNS nur einmal starten
 
 // Boot-Gnadenfrist: Watchdog greift erst nach 30s ein.
 // WiFi braucht manchmal 10–15s – ohne Frist würde der Hard-Reset
@@ -57,14 +58,19 @@ void wifiWatchdog()
 
     if (WiFi.status() == WL_CONNECTED) {
         wifiBackoffMs = 0;
-        // mDNS starten/neu starten nach (Re)connect
-        MDNS.end();
-        if (MDNS.begin(MDNS_HOSTNAME)) {
-            MDNS.addService("http", "tcp", 80);
-            Serial.println("✅ mDNS: http://klappe.local");
+        // mDNS nur einmal starten (nicht bei jedem Check!)
+        if (!mdnsRunning) {
+            if (MDNS.begin(MDNS_HOSTNAME)) {
+                MDNS.addService("http", "tcp", 80);
+                mdnsRunning = true;
+                Serial.println("✅ mDNS: http://klappe.local");
+            }
         }
         return;
     }
+
+    // WiFi verloren → mDNS muss nach Reconnect neu gestartet werden
+    mdnsRunning = false;
 
     if (wifiBackoffMs == 0) wifiBackoffMs = 5000;
     else wifiBackoffMs = min(wifiBackoffMs * 2, (unsigned long)60000);

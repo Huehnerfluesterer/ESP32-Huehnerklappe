@@ -23,8 +23,10 @@ extern const char *FW_VERSION;
 // ==================================================
 void handleAdvanced()
 {
-    String html = renderThemeHead("Erweitert");
-    html += R"rawliteral(
+    sendHTMLStart(200);
+    sendHTMLChunk(renderThemeHead("Erweitert"));
+
+    String body = R"rawliteral(
 <div class="header"><h3>🔧 Erweitert</h3></div>
 <div class="container">
   <div class="card">
@@ -35,16 +37,16 @@ void handleAdvanced()
   </div>
   <div class="card">
     <div class="card-title">Werkzeuge</div>
-    <button onclick="location.href='/systemtest'" class="btn-open">🧪 Systemtest</button>
-    <button onclick="location.href='/simulation'" class="btn-open" style="margin-top:8px;">🕐 Zeitoffset-Simulation</button>
-    <button onclick="location.href='/mqtt'"        class="btn-open">📡 MQTT Einstellungen</button>
-    <button onclick="location.href='/telegram'"    class="btn-open">📱 Telegram</button>
-    <button onclick="location.href='/espnow'"      class="btn-open">📶 ESP-NOW Geräte</button>
-    <button onclick="location.href='/rgb'"         class="btn-open">🎨 Lichtfarbe & Helligkeit</button>
-    <button onclick="location.href='/calibration'" class="btn-open">🎯 Kalibrierung</button>
-    <button onclick="location.href='/blockade'"    class="btn-open">⚡ Blockadeerkennung</button>
-    <button onclick="location.href='/log'"         class="btn-open">📜 Logbuch</button>
-    <button onclick="location.href='/fw'"          class="btn-open">⬆️ Firmware Update</button>
+    <a href="/systemtest" class="btn-link btn-open">🧪 Systemtest</a>
+    <a href="/simulation" class="btn-link btn-open" style="margin-top:8px;">🕐 Zeitoffset-Simulation</a>
+    <a href="/mqtt"       class="btn-link btn-open">📡 MQTT Einstellungen</a>
+    <a href="/telegram"   class="btn-link btn-open">📱 Telegram</a>
+    <a href="/espnow"     class="btn-link btn-open">📶 ESP-NOW Geräte</a>
+    <a href="/rgb"        class="btn-link btn-open">🎨 Lichtfarbe & Helligkeit</a>
+    <a href="/calibration" class="btn-link btn-open">🎯 Kalibrierung</a>
+    <a href="/blockade"   class="btn-link btn-open">⚡ Blockadeerkennung</a>
+    <a href="/log"        class="btn-link btn-open">📜 Logbuch</a>
+    <a href="/fw"         class="btn-link btn-open">⬆️ Firmware Update</a>
     <button onclick="toggleTheme()"                class="btn-open">🌙 Dark/Light Mode</button>
   </div>
   <div class="card danger-zone">
@@ -58,17 +60,21 @@ void handleAdvanced()
 .danger-zone{border:1px solid rgba(239,68,68,0.3);}
 .btn-open{margin-top:10px;background:var(--green);color:white;}
 .btn-close{margin-top:10px;background:var(--red);color:white;}
+.btn-link{display:block;width:100%;padding:14px;border:none;border-radius:14px;font-size:16px;font-weight:600;text-align:center;text-decoration:none;box-sizing:border-box;cursor:pointer;}
+.btn-link:active,button:active{opacity:0.7;transform:scale(0.98);}
 </style>
 <script>
 function rebootESP(){ if(!confirm("ESP wirklich neu starten?")) return; fetch("/reset",{method:"POST"}); setTimeout(()=>location.href="/",4000); }
 function toggleTheme(){ fetch("/set-theme",{method:"POST",body:new URLSearchParams({theme:document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark"})}).then(()=>location.reload()); }
 </script>
 )rawliteral";
-    html += renderFooter();
-    html.replace("%FW_VERSION%", FW_VERSION);
-    html.replace("%RSSI%",       String(WiFi.RSSI()));
-    html.replace("%FREE_HEAP%",  String(ESP.getFreeHeap() / 1024));
-    server.send(200, "text/html; charset=UTF-8", html);
+    body.replace("%FW_VERSION%", FW_VERSION);
+    body.replace("%RSSI%",       String(WiFi.RSSI()));
+    body.replace("%FREE_HEAP%",  String(ESP.getFreeHeap() / 1024));
+    sendHTMLChunk(body);
+
+    sendHTMLChunk(renderFooter());
+    sendHTMLEnd();
 }
 
 // ==================================================
@@ -233,7 +239,7 @@ function refreshStatus(){
   }).catch(()=>{});
 }
 refreshStatus();
-setInterval(refreshStatus, 3000);
+setInterval(refreshStatus, 5000);
 function saveBmeSource(){
   const src=document.getElementById("bmeEspNow").checked?"1":"0";
   fetch("/save-bme-source",{method:"POST",body:new URLSearchParams({source:src})})
@@ -305,7 +311,7 @@ function saveRelay(){
     html.replace("%RELAY_BADGE_CLASS%",     relayBadgeClass);
     html.replace("%RELAY_BADGE_TEXT%",      relayBadgeText);
 
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 // ==================================================
@@ -450,22 +456,18 @@ function save(){
     .then(r=>{if(r.ok){const m=document.getElementById("msg");m.style.display="block";setTimeout(()=>m.style.display="none",2000);}});
 }
 function refreshLive(){
-  fetch("/blockade-live").then(r=>r.text()).then(t=>{
-    document.getElementById("live").textContent=t+" A";
-  });
-  fetch("/blockade-peak").then(r=>r.text()).then(t=>{
-    document.getElementById("peak").textContent=t+" A";
-  });
-  fetch("/blockade-baseline").then(r=>r.text()).then(t=>{
-    document.getElementById("baseline").textContent = t==="--" ? "-- (Motor läuft noch nicht)" : t+" A";
-  });
+  fetch("/blockade-all",{cache:"no-store"}).then(r=>r.json()).then(d=>{
+    document.getElementById("live").textContent=d.live==="--"?"-- (kein Sensor?)":d.live+" A";
+    document.getElementById("peak").textContent=d.peak+" A";
+    document.getElementById("baseline").textContent=d.base==="--"?"-- (Motor läuft noch nicht)":d.base+" A";
+  }).catch(()=>{});
 }
 function resetPeak(){
   fetch("/blockade-peak-reset",{method:"POST"}).then(()=>{
     document.getElementById("peak").textContent="0.00 A";
   });
 }
-setInterval(refreshLive, 1000);
+setInterval(refreshLive, 3000);
 refreshLive();
 </script>
 )rawliteral";
@@ -476,7 +478,7 @@ refreshLive();
     html.replace("%TRIGGER_A%",  String(currentBaseline + blockadeThresholdA, 2));
     html.replace("%CHECKED%",    blockadeEnabled ? "checked" : "");
     html.replace("%THRESHOLD%",  String(blockadeThresholdA, 1));
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 // ==================================================
@@ -520,7 +522,7 @@ document.getElementById("uploadForm").addEventListener("submit",function(e){
 )rawliteral";
     html += renderFooter();
     html.replace("%FW_VERSION%", FW_VERSION);
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 // ==================================================
@@ -578,7 +580,7 @@ fetch("/systemtest-status",{cache:"no-store"}).then(r=>r.json()).then(d=>{evalua
     html.replace("%IP%",          WiFi.localIP().toString());
     bool mc = mqttSettings.enabled && mqttClientConnected();
     html.replace("%MQTT_STATUS%", !mqttSettings.enabled ? "Deaktiviert" : mc ? "Verbunden" : "Nicht verbunden");
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 // ==================================================
@@ -653,7 +655,7 @@ function togglePass(){const p=document.getElementById("mqttPass");p.type=(p.type
     html.replace("%MQTT_ENABLED%",     mqttSettings.enabled ? "checked" : "");
     html.replace("%MQTT_STATUS%",      !mqttSettings.enabled ? "Deaktiviert" : connected ? "Verbunden" : "Nicht verbunden");
     html.replace("%MQTT_STATUS_CLASS%",!mqttSettings.enabled ? "status-warn" : connected ? "status-ok" : "status-error");
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 void handleSaveMqtt()
@@ -670,7 +672,7 @@ void handleSaveMqtt()
     mqttClient.disconnect();
     mqttSetup();
     server.sendHeader("Location", "/mqtt");
-    server.send(303);
+    server.client().setNoDelay(true); server.sendHeader("Connection", "close"); server.send(303);
 }
 
 // ==================================================
@@ -770,7 +772,7 @@ function tgTest(){
     html.replace("%TG_CHAT%",    String(telegramSettings.chatId));
     html.replace("%TG_DH%",      String(telegramSettings.deadlineH));
     html.replace("%TG_DM%",      String(telegramSettings.deadlineM));
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 void handleSaveTelegram()
@@ -779,7 +781,7 @@ void handleSaveTelegram()
     saveTelegramSettings();
     addLog(String("Telegram ") + (telegramSettings.enabled ? "aktiviert" : "deaktiviert"));
     server.sendHeader("Location", "/telegram");
-    server.send(303);
+    server.client().setNoDelay(true); server.sendHeader("Connection", "close"); server.send(303);
 }
 
 void handleTelegramTest()
@@ -791,7 +793,7 @@ void handleTelegramTest()
     telegramSettings.enabled = true;   // Test auch dann, wenn Haken noch nicht gesetzt
     bool ok = telegramSendRaw("🧪 Testnachricht von der Hühnerklappe");
     telegramSettings = backup;         // Originalzustand wiederherstellen
-    server.send(200, "text/plain", ok ? "OK" : "Senden fehlgeschlagen");
+    sendPlain(ok ? "OK" : "Senden fehlgeschlagen");
 }
 
 
@@ -833,31 +835,31 @@ function motorDown()   { fetch("/motor/down"); document.getElementById("motorSta
 function motorStopBtn(){ fetch("/motor/stop"); document.getElementById("motorStatus").innerHTML="⏹ Motor gestoppt."; }
 function startLearn()  { document.getElementById("learnStatus").innerHTML="⏳ Wird gestartet..."; fetch("/learn-start",{method:"POST"}).then(r=>{document.getElementById("learnStatus").innerHTML=r.ok?"✅ Einlernmodus aktiv.":"❌ Fehler.";}); }
 function updatePositions(){ fetch("/calib-status").then(r=>r.json()).then(d=>{document.getElementById("posOpen").innerHTML=d.open;document.getElementById("posClose").innerHTML=d.close;}).catch(()=>{}); }
-setInterval(updatePositions,2000); updatePositions();
+setInterval(updatePositions,5000); updatePositions();
 </script>
 )rawliteral";
     html += renderFooter();
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 void handleLearn()
 {
-    if (learningActive)            { server.send(200, "text/plain", "Learning already active"); return; }
-    if (motorState != MOTOR_STOPPED){ server.send(409, "text/plain", "Motor running"); return; }
+    if (learningActive)            { sendPlain("Learning already active"); return; }
+    if (motorState != MOTOR_STOPPED){ sendPlain("Motor running", 409); return; }
     learningActive   = true;
     learningOpenDone = false;
     learnStartTime   = millis();
     motorReason      = "Einlernen";
     startMotorOpen(30000);  // 30s Timeout – Taster drücken wenn oben
     addLog("Einlernen gestartet – fahre Richtung OPEN");
-    server.send(200, "text/plain", "Learning started");
+    sendPlain("Learning started");
 }
 
 void handleLearnPage()
 {
-    server.send(200, "text/html; charset=UTF-8", R"rawliteral(
+    server.client().setNoDelay(true); server.sendHeader("Connection", "close"); server.send(200, "text/html; charset=UTF-8", R"rawliteral(
 <!DOCTYPE html><html lang="de"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Einlernen</title>
 <style>body{font-family:Arial,sans-serif;background:#f2f4f7;margin:0;padding:20px;}.card{background:white;padding:20px;border-radius:12px;box-shadow:0 2px 6px rgba(0,0,0,0.1);text-align:center;}button{width:100%;padding:14px;font-size:18px;border:none;border-radius:8px;background:#4CAF50;color:white;cursor:pointer;}</style>
 </head><body>
@@ -900,7 +902,7 @@ function clearLog(){ fetch("/log/clear",{method:"POST"}).then(()=>location.reloa
 )rawliteral";
     html += renderFooter();
     html.replace("%LOG_ENTRIES%", buildLogHTML());
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 // ==================================================
@@ -992,6 +994,37 @@ void handleRgb()
       💡 Die Farbe gilt für das <strong>Locklicht</strong> (vor Öffnung/Schließung).<br>
       Der Rot-Testmodus bleibt immer rot.
     </div>
+    <div class="card" style="margin-top:16px;">
+  <div class="card-title">💡 Stalllicht</div>
+
+  <div class="form-row" style="margin-top:10px;">
+    <label style="display:flex;align-items:center;gap:10px;font-size:14px;">
+      <input type="checkbox" id="stallAutoOff" %STALL_AUTOOFF_CHECKED%
+        style="width:18px;height:18px;accent-color:var(--green);">
+      Auto-Aus nach Zeit
+    </label>
+  </div>
+
+  <div id="stallTimerRow" class="form-row" style="%STALL_TIMER_DISPLAY%">
+    <label style="display:flex;justify-content:space-between;">
+      <span>Dauer</span>
+      <span id="stallMinLabel">%STALL_MIN% min</span>
+    </label>
+    <input type="range" id="stallMinSlider" min="1" max="120" value="%STALL_MIN%"
+      style="width:100%;accent-color:var(--green);margin-top:6px;"
+      oninput="onStallMin(this.value)">
+    <div style="display:flex;justify-content:space-between;font-size:11px;
+      color:var(--muted);margin-top:2px;"><span>1 min</span><span>120 min</span></div>
+  </div>
+
+  <button onclick="saveStallLight()" style="width:100%;padding:12px;
+    background:var(--green);color:#fff;border:none;border-radius:12px;
+    font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;">
+    💾 Speichern
+  </button>
+  <div id="stallSaveMsg" style="display:none;color:var(--green);font-size:13px;
+    text-align:center;margin-top:10px;">✅ Gespeichert</div>
+</div>
   </div>
 
   <div class="card" style="margin-top:16px;">
@@ -1083,6 +1116,23 @@ function onRedBrInput(v){
 // Helligkeit Label initial setzen
 document.getElementById('brLabel').textContent=
   Math.round(document.getElementById('brightness').value/255*100)+'%';
+  function onStallMin(v){
+  document.getElementById('stallMinLabel').textContent = v + ' min';
+}
+document.getElementById('stallAutoOff').addEventListener('change', function(){
+  document.getElementById('stallTimerRow').style.display = this.checked ? 'block' : 'none';
+});
+function saveStallLight(){
+  const autooff = document.getElementById('stallAutoOff').checked ? '1' : '0';
+  const minutes = document.getElementById('stallMinSlider').value;
+  fetch('/save-stalllight',{method:'POST',
+    body:new URLSearchParams({autooff, minutes})})
+  .then(()=>{
+    const m=document.getElementById('stallSaveMsg');
+    m.style.display='block';
+    setTimeout(()=>m.style.display='none',3000);
+  });
+}
 </script>
 )rawliteral";
 
@@ -1104,8 +1154,11 @@ document.getElementById('brLabel').textContent=
     html.replace("%RED_BR_PCT%", String((int)(rgbRedBrightness / 2.55f)));
     html.replace("%PREV_G%",  String(rgbColorG));
     html.replace("%PREV_B%",  String(rgbColorB));
+    html.replace("%STALL_AUTOOFF_CHECKED%", stallLightAutoOff ? "checked" : "");
+html.replace("%STALL_TIMER_DISPLAY%",   stallLightAutoOff ? "" : "display:none;");
+html.replace("%STALL_MIN%",             String(stallLightMinutes));
 
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 // ==================================================
@@ -1270,10 +1323,10 @@ async function resetAll(){
 }
 
 loadStatus();
-setInterval(loadStatus, 2000);
+setInterval(loadStatus, 4000);
 </script>
 )HTML";
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 
@@ -1325,7 +1378,7 @@ void handleSimulationStatus()
     doc["lightState"]    = lightActive ? "An" : "Aus";
     doc["automatik"]     = autoStr;
     String out; serializeJson(doc, out);
-    server.send(200, "application/json", out);
+    sendJSON(out);
 }
 
 void handleSimulationSet()
@@ -1337,5 +1390,5 @@ void handleSimulationSet()
         addLog("🕐 Simulations-Offset zurückgesetzt");
     else
         addLog("🕐 Simulations-Offset: " + String(h) + "h " + String(m) + "min");
-    server.send(200, "text/plain", "OK");
+    sendPlain("OK");
 }

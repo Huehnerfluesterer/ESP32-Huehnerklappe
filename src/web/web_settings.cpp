@@ -9,8 +9,12 @@
 // ==================================================
 void handleSettings()
 {
-    String html = renderThemeHead("Einstellungen");
-    html += R"rawliteral(
+    // Head sofort senden → Browser bekommt CSS und fängt an zu rendern
+    sendHTMLStart(200);
+    sendHTMLChunk(renderThemeHead("Einstellungen"));
+
+    // Body mit Platzhaltern aufbauen (nur ~6KB statt 9KB replace)
+    String body = R"rawliteral(
 <div class="header"><h3>⚙️ Einstellungen</h3></div>
 <div class="container">
   <div class="card">
@@ -109,20 +113,23 @@ document.getElementById("limitSwitches").addEventListener("change",function(){
 </script>
 )rawliteral";
 
-    html += renderFooter();
-    html.replace("%OPEN_MODE%",       openMode);
-    html.replace("%OPEN_TIME%",       openTime);
-    html.replace("%OPEN_LIGHT%",      String(openLightThreshold));
-    html.replace("%LAMP_PRE_OPEN%",   String(lampPreOpen));
-    html.replace("%LAMP_POST_OPEN%",  String(lampPostOpen));
-    html.replace("%CLOSE_MODE%",      closeMode);
-    html.replace("%CLOSE_TIME%",      closeTime);
-    html.replace("%CLOSE_LIGHT%",     String(closeLightThreshold));
-    html.replace("%LAMP_PRE_CLOSE%",  String(lampPreClose));
-    html.replace("%LAMP_POST_CLOSE%", String(lampPostClose));
-    html.replace("%CLOSE_DELAY_MIN%",  String(closeDelayMin));
-    html.replace("%LIMIT_SWITCHES%",  useLimitSwitches ? "checked" : "");
-    server.send(200, "text/html; charset=UTF-8", html);
+    // Replacements nur auf Body-String (~6KB statt 9KB)
+    body.replace("%OPEN_MODE%",       openMode);
+    body.replace("%OPEN_TIME%",       openTime);
+    body.replace("%OPEN_LIGHT%",      String(openLightThreshold));
+    body.replace("%LAMP_PRE_OPEN%",   String(lampPreOpen));
+    body.replace("%LAMP_POST_OPEN%",  String(lampPostOpen));
+    body.replace("%CLOSE_MODE%",      closeMode);
+    body.replace("%CLOSE_TIME%",      closeTime);
+    body.replace("%CLOSE_LIGHT%",     String(closeLightThreshold));
+    body.replace("%LAMP_PRE_CLOSE%",  String(lampPreClose));
+    body.replace("%LAMP_POST_CLOSE%", String(lampPostClose));
+    body.replace("%CLOSE_DELAY_MIN%",  String(closeDelayMin));
+    body.replace("%LIMIT_SWITCHES%",  useLimitSwitches ? "checked" : "");
+    sendHTMLChunk(body);
+
+    sendHTMLChunk(renderFooter());
+    sendHTMLEnd();
 }
 
 // ==================================================
@@ -147,9 +154,9 @@ void handleSaveOpen()
     if (applySettingsFromJson(doc, err))
     {
         addLog("Öffnungs-Einstellungen gespeichert");
-        server.send(200, "text/plain", "OK");
+        sendPlain("OK");
     }
-    else server.send(400, "text/plain; charset=UTF-8", err);
+    else sendPlain(err, 400);
 }
 
 // ==================================================
@@ -176,7 +183,7 @@ void handleSaveClose()
     if (applySettingsFromJson(doc, err))
     {
         addLog("Schließ-Einstellungen gespeichert");
-        server.send(200, "text/plain", "OK");
+        sendPlain("OK");
     }
-    else server.send(400, "text/plain; charset=UTF-8", err);
+    else sendPlain(err, 400);
 }

@@ -58,6 +58,22 @@ void storageInit()
     }
 }
 
+void saveStallLightSettings()
+{
+    EEPROM.put(EEPROM_ADDR_STALL_AUTO_OFF, stallLightAutoOff);
+    EEPROM.put(EEPROM_ADDR_STALL_MINUTES,  (uint8_t)stallLightMinutes);
+    EEPROM.commit();
+}
+
+void loadStallLightSettings()
+{
+    bool ao; uint8_t min;
+    EEPROM.get(EEPROM_ADDR_STALL_AUTO_OFF, ao);
+    EEPROM.get(EEPROM_ADDR_STALL_MINUTES,  min);
+    if (min < 1 || min > 120) min = 1;
+    stallLightAutoOff  = ao;
+    stallLightMinutes  = min;
+}
 // ==================================================
 // SETTINGS
 // ==================================================

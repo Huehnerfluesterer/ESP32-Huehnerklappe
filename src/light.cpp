@@ -22,6 +22,8 @@ bool          dimmingActive     = false;
 unsigned long dimStartTime      = 0;
 unsigned long dimEndTime        = 0;
 
+bool stallLightAutoOff = true;   // Standard: Auto-Aus aktiv
+
 // LEDC-Kanäle (fest vergeben, Core 2.x)
 static const int chR = 0;
 static const int chG = 1;
@@ -105,16 +107,23 @@ void lightOff()
 // ==================================================
 void stallLightOn()
 {
-    stallLightActive  = true;
-    stallLightOffTime = millis() + (unsigned long)stallLightMinutes * 60000UL;
-    digitalWrite(STALLLIGHT_RELAY_PIN, RELAY_ON);
-    addLog("Stalllicht angeschaltet");
+    stallLightActive = true;
+    // Timer nur setzen wenn Auto-Aus aktiviert
+    if (stallLightAutoOff)
+        stallLightOffTime = millis() + (unsigned long)stallLightMinutes * 60000UL;
+    else
+        stallLightOffTime = 0;  // kein Timer
+
+    digitalWrite(STALLLIGHT_RELAY_PIN, STALLLIGHT_ON);
+    addLog(stallLightAutoOff
+        ? "Stalllicht AN (Auto-Aus in " + String(stallLightMinutes) + " min)"
+        : "Stalllicht AN (Dauerbetrieb)");
 }
 
 void stallLightOff()
 {
     stallLightActive = false;
-    digitalWrite(STALLLIGHT_RELAY_PIN, RELAY_OFF);
+    digitalWrite(STALLLIGHT_RELAY_PIN, STALLLIGHT_OFF);  // LOW
     addLog("Stalllicht ausgeschaltet");
 }
 
@@ -233,6 +242,6 @@ void updateDimming(unsigned long nowMs)
 // ==================================================
 void updateStallLightTimer(unsigned long nowMs)
 {
-    if (stallLightActive && nowMs >= stallLightOffTime)
+    if (stallLightActive && stallLightAutoOff && stallLightOffTime > 0 && nowMs >= stallLightOffTime)
         stallLightOff();
 }

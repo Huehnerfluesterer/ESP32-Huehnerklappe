@@ -44,10 +44,14 @@
 #define RGB_PIN_R       4
 #define RGB_PIN_G      16
 #define RGB_PIN_B      17
-#define RGB_PIN_W      21    // war ESP32: 23 (existiert nicht!)
+#define RGB_PIN_W      21   
 #define RGB_FREQ     1000
 #define RGB_BITS        8
 
 // Relais-Logik (aktiv LOW)
 #define RELAY_ON  LOW
 #define RELAY_OFF HIGH
+
+// Stalllicht SSR-Logik (aktiv HIGH – SSR statt Mechanikrelais)
+#define STALLLIGHT_ON  HIGH
+#define STALLLIGHT_OFF LOW

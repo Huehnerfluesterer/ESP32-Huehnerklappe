@@ -29,14 +29,15 @@ void handleRoot()
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#4CAF50">
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Hühnerklappe</title>
 <style>
 :root { --bg:#f4f6f9; --card:#ffffff; --text:#1f2937; --muted:#6b7280; --green:#22c55e; --red:#ef4444; --orange:#f59e0b; --accent:#16a34a; --radius:18px; }
 @media (prefers-color-scheme: dark) { :root[data-theme="auto"] { --bg:#0f172a; --card:#1e293b; --text:#f1f5f9; --muted:#94a3b8; } }
 :root[data-theme="dark"]  { --bg:#0f172a; --card:#1e293b; --text:#f1f5f9; --muted:#94a3b8; }
 :root[data-theme="light"] { --bg:#f4f6f9; --card:#ffffff; --text:#1f2937; --muted:#6b7280; }
-body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; }
+*,*::before,*::after { touch-action:manipulation; -webkit-tap-highlight-color:rgba(0,0,0,0.1); }
+body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; -webkit-text-size-adjust:100%; }
 .header { padding:28px 20px 20px; text-align:center; font-size:20px; font-weight:700; }
 .datetime { font-size:15px; color:var(--muted); margin-top:6px; }
 .weather  { font-size:14px; color:var(--muted); margin-top:4px; letter-spacing:0.3px; }
@@ -49,6 +50,8 @@ body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-ser
 .status-row { display:flex; justify-content:space-between; margin-bottom:10px; font-size:15px; }
 .status-row .label { color:var(--muted); }
 button { border:none; border-radius:14px; padding:14px; font-size:17px; font-weight:600; cursor:pointer; }
+button:active { opacity:0.7; transform:scale(0.98); }
+a      { touch-action:manipulation; }
 .btn-open  { width:100%; background:var(--green);  color:white; }
 .btn-close { width:100%; background:var(--red);    color:white; }
 .btn-stop  { width:100%; background:var(--orange); color:white; }
@@ -59,24 +62,39 @@ button { border:none; border-radius:14px; padding:14px; font-size:17px; font-wei
 .sys-ok, .sys-error { width:30px; height:30px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:16px; }
 .sys-ok    { background:rgba(34,197,94,0.15); color:var(--green); }
 .sys-error { background:rgba(239,68,68,0.15); color:var(--red); }
-nav { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); width:100%; max-width:430px; background:var(--card); border-radius:22px; box-shadow:0 10px 25px rgba(0,0,0,0.15); display:flex; padding:6px 0; }
-nav a { flex:1; text-align:center; text-decoration:none; color:var(--muted); font-size:13px; font-weight:600; }
+nav { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); width:100%; max-width:430px; background:var(--card); border-radius:22px; box-shadow:0 10px 25px rgba(0,0,0,0.15); display:flex; padding:0; padding-bottom:env(safe-area-inset-bottom); }
+nav a { flex:1; text-align:center; text-decoration:none; color:var(--muted); font-size:13px; font-weight:600; padding:12px 0; -webkit-tap-highlight-color:rgba(0,0,0,0.1); }
 .card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .sys-link { text-decoration:none; }
 </style>
 <script>
 let inflight = false;
 let last = { date:"", time:"", door:"", automatik:"", next:"", light:"", lightState:"" };
-async function debounceAction(btn,fn){ if(!btn)return; btn.disabled=true; try{await fn();}finally{setTimeout(()=>btn.disabled=false,250);} }
-async function toggleLockLight(){ const b=document.getElementById('lockLightBtn'); await debounceAction(b,async()=>{await fetch('/light',{cache:'no-store'});await update();}); }
-async function toggleStallLight(){ const b=document.getElementById('stallLightBtn'); await debounceAction(b,async()=>{await fetch('/stalllight',{cache:'no-store'});await update();}); }
-async function toggleDoor(){ const b=document.getElementById('doorBtn'); await debounceAction(b,async()=>{await fetch('/door',{cache:'no-store'});await update();}); }
-async function clearOverride(){await fetch('/clear-override',{method:'POST'});await update();}
-async function toggleRGB(){ const b=document.getElementById('rgbBtn'); await debounceAction(b,async()=>{await fetch('/rgbred',{cache:'no-store'});await update();}); }
-async function setRedBright(v){document.getElementById('redBrightVal').innerText=v;const fd=new FormData();fd.append('v',v);await fetch('/red-brightness',{method:'POST',body:fd});}
+function tFetch(url,opts){const c=new AbortController();const t=setTimeout(()=>c.abort(),4000);opts=Object.assign({signal:c.signal},opts||{});return fetch(url,opts).finally(()=>clearTimeout(t));}
+async function debounceAction(btn,fn){ if(!btn)return; btn.disabled=true; try{await fn();}finally{setTimeout(()=>btn.disabled=false,350);} }
+async function toggleLockLight(){ const b=document.getElementById('lockLightBtn'); await debounceAction(b,async()=>{await tFetch('/light',{cache:'no-store'});await update();}); }
+async function toggleStallLight(){ const b=document.getElementById('stallLightBtn'); await debounceAction(b,async()=>{await tFetch('/stalllight',{cache:'no-store'});await update();}); }
+async function toggleDoor(){ const b=document.getElementById('doorBtn'); await debounceAction(b,async()=>{await tFetch('/door',{cache:'no-store'});await update();}); }
+async function clearOverride(){await tFetch('/clear-override',{method:'POST'});await update();}
+async function toggleRGB(){ const b=document.getElementById('rgbBtn'); await debounceAction(b,async()=>{await tFetch('/rgbred',{cache:'no-store'});await update();}); }
+async function setRedBright(v){document.getElementById('redBrightVal').innerText=v;const fd=new FormData();fd.append('v',v);await tFetch('/red-brightness',{method:'POST',body:fd});}
 function setDoorButton(label,cls){ const b=document.getElementById('doorBtn'); if(!b)return; b.textContent=label; b.classList.remove('btn-open','btn-close','btn-stop'); b.classList.add(cls); }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')update();});
-document.addEventListener('DOMContentLoaded',()=>{update();setInterval(update,3000);});
+document.addEventListener('DOMContentLoaded',()=>{update();setInterval(update,5000);});
+// SPA-Navigation: fetch() nutzt die bestehende TCP-Verbindung (kein iOS WiFi-Stall)
+document.addEventListener('click',function(e){
+  var a=e.target.closest('a[href^="/"]');
+  if(!a||a.getAttribute('onclick'))return;
+  e.preventDefault();
+  var url=a.getAttribute('href');
+  var c=document.querySelector('.container');
+  if(c)c.style.opacity='0.4';
+  fetch(url,{cache:'no-store'}).then(function(r){return r.text();}).then(function(h){
+    document.open();document.write(h);document.close();
+    if(history.pushState)history.pushState({},'',url);
+  }).catch(function(){location.href=url;});
+});
+window.addEventListener('popstate',function(){location.reload();});
 </script>
 </head>
 <body>
@@ -123,7 +141,7 @@ document.addEventListener('DOMContentLoaded',()=>{update();setInterval(update,30
 async function update(){
   if(inflight)return; inflight=true;
   try{
-    const r=await fetch('/status',{cache:'no-store'}); const d=await r.json();
+    const r=await tFetch('/status',{cache:'no-store'}); const d=await r.json();
     if(d.date!==last.date){document.getElementById('date').innerText=d.date;last.date=d.date;}
     if(d.time!==last.time){document.getElementById('time').innerText=d.time;last.time=d.time;}
     const wEl=document.getElementById('weather');
@@ -177,7 +195,7 @@ async function update(){
 )rawliteral";
 
     html.replace("%THEME%", uiTheme);
-    server.send(200, "text/html; charset=UTF-8", html);
+    sendHTML(html);
 }
 
 // ==================================================
@@ -250,5 +268,5 @@ void handleStatus()
     }
 
     String out; serializeJson(doc, out);
-    server.send(200, "application/json", out);
+    sendJSON(out);
 }

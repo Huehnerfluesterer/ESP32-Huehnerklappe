@@ -82,13 +82,14 @@ void setup()
     loadBmeSource();
     loadRelaySettings();
     loadRgbSettings();
+    loadStallLightSettings();
     loadCloseDelay();
 
     // ===== GPIO =====
     pinMode(MOTOR_IN1,          OUTPUT); digitalWrite(MOTOR_IN1, LOW);
     pinMode(MOTOR_IN2,          OUTPUT); digitalWrite(MOTOR_IN2, LOW);
     pinMode(RELAIS_PIN,         OUTPUT); digitalWrite(RELAIS_PIN, RELAY_OFF);
-    pinMode(STALLLIGHT_RELAY_PIN,OUTPUT);digitalWrite(STALLLIGHT_RELAY_PIN, RELAY_OFF);
+    pinMode(STALLLIGHT_RELAY_PIN,OUTPUT);digitalWrite(STALLLIGHT_RELAY_PIN, STALLLIGHT_OFF);
     pinMode(BUTTON_PIN,         INPUT_PULLUP);
     pinMode(STALL_BUTTON_PIN,   INPUT_PULLUP);
     pinMode(RED_BUTTON_PIN,     INPUT_PULLUP);
@@ -177,19 +178,19 @@ void setup()
         rgbColorW    = (uint8_t)constrain(server.arg("w").toInt(),  0, 255);
         rgbBrightness= (uint8_t)constrain(server.arg("br").toInt(), 1, 255);
         saveRgbSettings();
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
     server.on("/fw",         HTTP_GET,  handleFw);
     server.on("/blockade",   HTTP_GET,  handleBlockade);
     server.on("/save-blockade", HTTP_POST, []() {
-        if (otaInProgress || ioSafeState) { server.send(503, "text/plain", "OTA aktiv"); return; }
+        if (otaInProgress || ioSafeState) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "OTA aktiv"); return; }
         blockadeEnabled    = server.arg("enabled")   == "1";
         blockadeThresholdA = server.arg("threshold").toFloat();
         if (blockadeThresholdA < 0.5f || blockadeThresholdA > 10.0f) blockadeThresholdA = 2.0f;
         saveBlockadeSettings();
         addLog(String("Blockade: ") + (blockadeEnabled ? "aktiv" : "deaktiviert") +
                ", Schwelle=" + String(blockadeThresholdA, 1) + "A");
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
     server.on("/blockade-live", HTTP_GET, []() {
         // 100 Samples für stabilen Mittelwert (ESP32 ADC rauscht stark)
@@ -209,15 +210,17 @@ void setup()
         else          { filtered = filtered * 0.6f + amps * 0.4f; }
         // Sensor-Warnung NUR im Stillstand – beim laufenden Motor immer Rohwert zeigen
         if (filtered > 8.0f && motorState == MOTOR_STOPPED) {
-            server.send(200, "text/plain", "-- (kein Sensor?)");
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "-- (kein Sensor?)");
             return;
         }
-        server.send(200, "text/plain", String(filtered, 2));
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", String(filtered, 2));
     });
     server.on("/blockade-peak", HTTP_GET, []() {
-        server.send(200, "text/plain", String(peakCurrentA, 2));
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", String(peakCurrentA, 2));
     });
     server.on("/blockade-baseline", HTTP_GET, []() {
+        server.client().setNoDelay(true);
+        server.sendHeader("Connection","close");
         if (currentCalibrated)
             server.send(200, "text/plain", String(currentBaseline, 2));
         else
@@ -225,13 +228,33 @@ void setup()
     });
     server.on("/blockade-peak-reset", HTTP_POST, []() {
         peakCurrentA = 0.0f;
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+    });
+    // Kombinierter Endpoint – ersetzt 3 einzelne Fetches (iOS Performance)
+    server.on("/blockade-all", HTTP_GET, []() {
+        const int S = 100; long sum = 0;
+        for (int i = 0; i < S; i++) sum += analogRead(ACS712_PIN);
+        float vMeas   = (sum / S) * (3.3f / 4095.0f);
+#if ACS712_HAS_DIVIDER
+        float vSensor = vMeas / (20.0f / 30.0f);
+#else
+        float vSensor = vMeas;
+#endif
+        float amps    = fabsf((vSensor - ACS712_ZERO_V) / (ACS712_MV_PER_A / 1000.0f));
+        static float filtered = 0.0f;
+        static bool  firstRun = true;
+        if (firstRun) { filtered = amps; firstRun = false; }
+        else          { filtered = filtered * 0.6f + amps * 0.4f; }
+        String live = (filtered > 8.0f && motorState == MOTOR_STOPPED) ? "--" : String(filtered, 2);
+        String base = currentCalibrated ? String(currentBaseline, 2) : "--";
+        String out = "{\"live\":\"" + live + "\",\"peak\":\"" + String(peakCurrentA, 2) + "\",\"base\":\"" + base + "\"}";
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "application/json", out);
     });
     server.on("/save-bme-source", HTTP_POST, []() {
         BmeSource newSrc = (server.arg("source") == "1") ? BME_SOURCE_ESPNOW : BME_SOURCE_LOCAL;
         bmeSetSource(newSrc);
         saveBmeSource();
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/save-relay", HTTP_POST, []() {
@@ -244,12 +267,12 @@ void setup()
         }
         saveRelaySettings();
         relayReset();
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/bme-mac", HTTP_GET, []() {
         String info = WiFi.macAddress() + "|" + String(WiFi.channel());
-        server.send(200, "text/plain", info);
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", info);
     });
     server.on("/espnow-status", HTTP_GET, []() {
         JsonDocument doc;
@@ -299,7 +322,7 @@ void setup()
             doc["relayLastSeen"] = "–";
         }
         String out; serializeJson(doc, out);
-        server.send(200, "application/json", out);
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "application/json", out);
     });
     server.on("/systemtest", HTTP_GET,  handleSelftest);
     server.on("/mqtt",       HTTP_GET,  handleMqtt);
@@ -312,29 +335,35 @@ void setup()
     server.on("/learn-page",    handleLearnPage);
     server.on("/learn-start", HTTP_POST, handleLearn);
     server.on("/log",           handleLogbook);
-
-    server.on("/mini",   []() { server.send(200, "text/plain", "OK"); });
+server.on("/save-stalllight", HTTP_POST, []() {
+    stallLightAutoOff = server.arg("autooff") == "1";
+    int min = server.arg("minutes").toInt();
+    stallLightMinutes = constrain(min, 1, 120);
+    saveStallLightSettings();
+    server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+});
+    server.on("/mini",   []() { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK"); });
 
     server.on("/log/clear", HTTP_POST, []() {
-        if (otaInProgress || ioSafeState) { server.send(503, "text/plain", "OTA aktiv"); return; }
+        if (otaInProgress || ioSafeState) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "OTA aktiv"); return; }
         clearLogbook(); addLog("Logbuch manuell gelöscht");
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/log/download", HTTP_GET, []() {
         if (!LittleFS.exists(LOG_FILE)) {
-            server.send(404, "text/plain", "Kein Logfile vorhanden");
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(404, "text/plain", "Kein Logfile vorhanden");
             return;
         }
         File f = LittleFS.open(LOG_FILE, "r");
-        server.streamFile(f, "text/plain");
+        server.sendHeader("Connection","close"); server.streamFile(f, "text/plain");
         f.close();
     });
 
     server.on("/set-theme", HTTP_POST, []() {
         String t = server.arg("theme");
         if (t == "dark" || t == "light" || t == "auto") saveTheme(t);
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/set-limit-switches", HTTP_POST, []() {
@@ -343,21 +372,21 @@ void setup()
             EEPROM.put(EEPROM_ADDR_LIMIT_SW, useLimitSwitches); EEPROM.commit();
             addLog(String("Endschalter ") + (useLimitSwitches ? "aktiviert" : "deaktiviert"));
         }
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/door", []() {
-        if (otaInProgress || ioSafeState) { server.send(503, "text/plain", "OTA aktiv"); return; }
+        if (otaInProgress || ioSafeState) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "OTA aktiv"); return; }
         if (motorState != MOTOR_STOPPED) {
             motorStop(); motorState = MOTOR_STOPPED; motorReason = "Stop/Manuell";
             doorPhase = doorOpen ? PHASE_OPEN : PHASE_IDLE;
-            addLog("Motor gestoppt"); server.send(200, "text/plain", "STOP"); return;
+            addLog("Motor gestoppt"); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "STOP"); return;
         }
         if (doorOpen) {
             doorPhase = PHASE_CLOSING; motorReason = "manuell/Web (Toggle)";
             startMotorClose(closePosition); actionLock = true;
             preLightOpenDone = false; manualOverrideUntil = millis() + 300000UL;
-            server.send(200, "text/plain", "Closing"); addLog("Schließvorgang gestartet (Toggle)");
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Closing"); addLog("Schließvorgang gestartet (Toggle)");
         } else {
             doorPhase = PHASE_OPENING; motorReason = "manuell/Web (Toggle)";
             startMotorOpen(openPosition); actionLock = true;
@@ -365,48 +394,48 @@ void setup()
             manualOverrideUntil = millis() + 900000UL;  // 15 Minuten
             lightBelowSince = 0;
             nightLock = false;
-            server.send(200, "text/plain", "Opening"); addLog("Öffnung gestartet (Toggle) – Automatik pausiert 15 min");
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Opening"); addLog("Öffnung gestartet (Toggle) – Automatik pausiert 15 min");
         }
     });
 
     server.on("/open", []() {
-        if (otaInProgress || ioSafeState) { server.send(503, "text/plain", "OTA aktiv"); return; }
-        if (doorOpen) { server.send(200, "text/plain", "Already open"); return; }
-        if (motorState != MOTOR_STOPPED) { server.send(200, "text/plain", "Motor running"); return; }
+        if (otaInProgress || ioSafeState) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "OTA aktiv"); return; }
+        if (doorOpen) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Already open"); return; }
+        if (motorState != MOTOR_STOPPED) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Motor running"); return; }
         doorPhase = PHASE_OPENING; motorReason = "manuell/Web";
         startMotorOpen(openPosition); actionLock = true;
         preLightCloseDone = false; preLightOpenDone = false; manualOverrideUntil = millis() + 300000UL;
-        server.send(200, "text/plain", "Opening");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Opening");
     });
 
     server.on("/close", []() {
-        if (otaInProgress || ioSafeState) { server.send(503, "text/plain", "OTA aktiv"); return; }
-        if (!doorOpen) { server.send(200, "text/plain", "Already closed"); return; }
-        if (motorState != MOTOR_STOPPED) { server.send(200, "text/plain", "Motor running"); return; }
+        if (otaInProgress || ioSafeState) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "OTA aktiv"); return; }
+        if (!doorOpen) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Already closed"); return; }
+        if (motorState != MOTOR_STOPPED) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Motor running"); return; }
         doorPhase = PHASE_CLOSING; motorReason = "manuell/Web";
         startMotorClose(closePosition); actionLock = true;
         preLightOpenDone = false; manualOverrideUntil = millis() + 300000UL;
-        server.send(200, "text/plain", "Closing");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Closing");
     });
 
     server.on("/light", []() {
-        if (manualLightActive) { manualLightActive = false; lightOff(); lightActive = false; addLog("Locklicht manuell AUS"); server.send(200, "text/plain", "OFF"); }
-        else { manualLightActive = true; lightOn(); lightActive = true; addLog("Locklicht manuell AN"); server.send(200, "text/plain", "ON"); }
+        if (manualLightActive) { manualLightActive = false; lightOff(); lightActive = false; addLog("Locklicht manuell AUS"); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OFF"); }
+        else { manualLightActive = true; lightOn(); lightActive = true; addLog("Locklicht manuell AN"); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "ON"); }
     });
 
     server.on("/stalllight", []() {
-        if (stallLightActive) { stallLightOff(); server.send(200, "text/plain", "OFF"); }
-        else { stallLightOn(); server.send(200, "text/plain", "ON"); }
+        if (stallLightActive) { stallLightOff(); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OFF"); }
+        else { stallLightOn(); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "ON"); }
     });
 
     server.on("/rgbred", []() {
-        if (rgbRedActive) { rgbRedOff(); server.send(200, "text/plain", "OFF"); }
-        else { rgbRedOn(); server.send(200, "text/plain", "ON"); }
+        if (rgbRedActive) { rgbRedOff(); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OFF"); }
+        else { rgbRedOn(); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "ON"); }
     });
 
     server.on("/clear-override", HTTP_POST, []() {
         manualOverrideUntil = 0;
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/live-rgb", HTTP_POST, []() {
@@ -419,37 +448,37 @@ void setup()
             // Nur anzeigen wenn Licht gerade aktiv (nicht Grundeinstellungen überschreiben)
             lightPreview(r, g, b, br, w);
         }
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/red-brightness", HTTP_POST, []() {
         if (server.hasArg("v")) {
             int v = constrain(server.arg("v").toInt(), 1, 255);
             rgbRedSetBrightness((uint8_t)v);
-            server.send(200, "text/plain", "OK");
-        } else server.send(400, "text/plain", "missing v");
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+        } else { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(400, "text/plain", "missing v"); }
     });
 
     server.on("/motor/up", []() {
-        if (otaInProgress || ioSafeState) { server.send(503, "text/plain", "Motor gesperrt"); return; }
+        if (otaInProgress || ioSafeState) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "Motor gesperrt"); return; }
         if (motorState == MOTOR_STOPPED) { motorReason = "Service"; startMotorOpen(openPosition); }
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/motor/down", []() {
-        if (otaInProgress || ioSafeState) { server.send(503, "text/plain", "Motor gesperrt"); return; }
+        if (otaInProgress || ioSafeState) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "Motor gesperrt"); return; }
         if (motorState == MOTOR_STOPPED) { motorReason = "Service"; startMotorClose(closePosition); }
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
-    server.on("/motor/stop", []() { motorStop(); motorState = MOTOR_STOPPED; server.send(200, "text/plain", "OK"); });
+    server.on("/motor/stop", []() { motorStop(); motorState = MOTOR_STOPPED; server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK"); });
 
     server.on("/calib-status", []() {
-        server.send(200, "application/json", "{\"open\":" + String(openPosition) + ",\"close\":" + String(closePosition) + "}");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "application/json", "{\"open\":" + String(openPosition) + ",\"close\":" + String(closePosition) + "}");
     });
 
     server.on("/learn-status", []() {
-        server.send(200, "application/json", "{\"active\":" + String(learningActive?"true":"false") + ",\"phase\":" + String(learningOpenDone?2:1) + "}");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "application/json", "{\"active\":" + String(learningActive?"true":"false") + ",\"phase\":" + String(learningOpenDone?2:1) + "}");
     });
 
     server.on("/systemtest-status", HTTP_GET, []() {
@@ -470,34 +499,50 @@ void setup()
         doc["uptime"]         = millis() / 1000;
         doc["useLimitSwitches"] = useLimitSwitches;
         String out; serializeJson(doc, out);
-        server.send(200, "application/json", out);
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "application/json", out);
     });
 
     server.on("/systemtest-motor", HTTP_POST, []() {
         if (motorState == MOTOR_STOPPED && !otaInProgress && !ioSafeState) {
             startMotorOpen(200); delay(250); motorStop();
         }
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     server.on("/mqtt-test", HTTP_POST, []() {
-        WiFiClient tc; PubSubClient tm(tc);
-        tm.setServer(server.arg("host").c_str(), server.arg("port").toInt());
-        String user = server.arg("user");
-        bool ok = user.length() > 0
-            ? tm.connect(server.arg("clientId").c_str(), user.c_str(), server.arg("pass").c_str())
-            : tm.connect(server.arg("clientId").c_str());
-        if (ok) { tm.disconnect(); server.send(200, "text/plain", "OK"); }
-        else server.send(200, "text/plain", "FAIL");
-    });
+    String host     = server.arg("host");
+    int    port     = server.arg("port").toInt();
+    String user     = server.arg("user");
+    String pass     = server.arg("pass");
+    String clientId = server.arg("clientId");
+    if (port <= 0 || port > 65535) port = 1883;
+
+    WiFiClient tc;
+    // TCP-Connect mit 4s Timeout – schlägt schnell fehl statt 10-20s zu hängen
+    if (!tc.connect(host.c_str(), (uint16_t)port, 4000)) {
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "FAIL");
+        return;
+    }
+
+    // TCP ist offen → PubSubClient macht nur noch den MQTT-Handshake
+    PubSubClient tm(tc);
+    tm.setServer(host.c_str(), (uint16_t)port);
+    bool ok = user.length() > 0
+        ? tm.connect(clientId.c_str(), user.c_str(), pass.c_str())
+        : tm.connect(clientId.c_str());
+
+    if (ok) tm.disconnect();
+    server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", ok ? "OK" : "FAIL");
+});
 
     server.on("/reset", HTTP_POST, []() {
-        server.send(200, "text/plain", "Restarting");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Restarting");
         delay(500); ESP.restart();
     });
 
     server.on("/manifest.json", HTTP_GET, []() {
-        server.send(200, "application/json; charset=utf-8", R"JSON({
+        server.sendHeader("Cache-Control", "public, max-age=86400");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "application/json; charset=utf-8", R"JSON({
   "name": "H\u00FChnerklappe",
   "short_name": "Klappe",
   "description": "Automatische H\u00FChnerklappe Steuerung",
@@ -515,23 +560,29 @@ void setup()
     });
 
     server.on("/icon192", HTTP_GET, []() {
-        server.send_P(200, "image/png", (PGM_P)icon192_png, icon192_png_len);
+        server.sendHeader("Cache-Control", "public, max-age=604800");
+        server.client().setNoDelay(true); server.send_P(200, "image/png", (PGM_P)icon192_png, icon192_png_len);
     });
     server.on("/icon512", HTTP_GET, []() {
-        server.send_P(200, "image/png", (PGM_P)icon512_png, icon512_png_len);
+        server.sendHeader("Cache-Control", "public, max-age=604800");
+        server.client().setNoDelay(true); server.send_P(200, "image/png", (PGM_P)icon512_png, icon512_png_len);
     });
     server.on("/icon-192.png", HTTP_GET, []() {
-        server.send_P(200, "image/png", (PGM_P)icon192_png, icon192_png_len);
+        server.sendHeader("Cache-Control", "public, max-age=604800");
+        server.client().setNoDelay(true); server.send_P(200, "image/png", (PGM_P)icon192_png, icon192_png_len);
     });
     server.on("/icon-512.png", HTTP_GET, []() {
-        server.send_P(200, "image/png", (PGM_P)icon512_png, icon512_png_len);
+        server.sendHeader("Cache-Control", "public, max-age=604800");
+        server.client().setNoDelay(true); server.send_P(200, "image/png", (PGM_P)icon512_png, icon512_png_len);
     });
     // Standard-Pfade die Safari automatisch sucht
     server.on("/apple-touch-icon.png", HTTP_GET, []() {
-        server.send_P(200, "image/png", (PGM_P)icon192_png, icon192_png_len);
+        server.sendHeader("Cache-Control", "public, max-age=604800");
+        server.client().setNoDelay(true); server.send_P(200, "image/png", (PGM_P)icon192_png, icon192_png_len);
     });
     server.on("/apple-touch-icon-precomposed.png", HTTP_GET, []() {
-        server.send_P(200, "image/png", (PGM_P)icon192_png, icon192_png_len);
+        server.sendHeader("Cache-Control", "public, max-age=604800");
+        server.client().setNoDelay(true); server.send_P(200, "image/png", (PGM_P)icon192_png, icon192_png_len);
     });
 
     // Forecast-Test
@@ -544,11 +595,11 @@ void setup()
         manualOverrideUntil = 0;
         lastLux = testLuxStart; lastLuxTime = millis(); luxRateFiltered = 0;
         addLog("TEST: Lux-Kurve " + String(testLuxStart,0) + "→" + String(testLuxEnd,0) + " lx über " + String(testDurationMin,0) + " min");
-        server.send(200, "text/plain", "Prognose-Test gestartet");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Prognose-Test gestartet");
     });
     server.on("/test/forecast/stop", HTTP_GET, []() {
         forecastTestMode = false; addLog("TEST: Prognose-Test beendet");
-        server.send(200, "text/plain", "Prognose-Test beendet");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Prognose-Test beendet");
     });
 
     // Simulation
@@ -567,7 +618,7 @@ void setup()
             simLuxClear();
             addLog("💡 Sim-Lux deaktiviert");
         }
-        server.send(200, "text/plain", "OK");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
     });
 
     // OTA
@@ -576,7 +627,7 @@ void setup()
             bool ok = !Update.hasError() && Update.end(true);
             Serial.printf("OTA end: ok=%d error=%d\n", ok, Update.getError());
             if (!ok) Update.printError(Serial);
-            server.send(ok ? 200 : 500, "text/plain; charset=UTF-8", ok ? "Update erfolgreich" : "Update fehlgeschlagen");
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(ok ? 200 : 500, "text/plain; charset=UTF-8", ok ? "Update erfolgreich" : "Update fehlgeschlagen");
             otaInProgress = false;
             ioSafeState   = false;
             if (ok) { delay(300); ESP.restart(); }
@@ -646,6 +697,7 @@ void loop()
 
     // ===== NETZWERK =====
     mqttLoop();
+    server.handleClient();   // Web-Requests zwischen schweren Operationen abarbeiten
     wifiWatchdog();
 
     // NTP Nachsync
@@ -724,6 +776,7 @@ void loop()
     bmeUpdate();
     relaySync();
     loggerUpdate();  // LittleFS deferred write alle 30s
+    server.handleClient();   // Web-Requests nach I2C/Sensor-Arbeit abarbeiten
 
     // ===== DIMMING + STALLLICHT =====
     updateDimming(nowMs);

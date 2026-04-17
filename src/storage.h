@@ -17,6 +17,8 @@
 #define EEPROM_ADDR_RELAY       480    // bool relayEnabled (1) + uint8_t[6] relayMac (6)
 #define EEPROM_ADDR_RGB         490    // uint8_t r, g, b, w, brightness (5 Bytes)
 #define EEPROM_ADDR_CLOSE_DELAY 496    // uint8_t closeDelayMin (0–30 min)
+#define EEPROM_ADDR_STALL_AUTO_OFF  497   // bool stallLightAutoOff (1 Byte)
+#define EEPROM_ADDR_STALL_MINUTES   498   // uint8_t stallLightMinutes (1 Byte)
 #define EEPROM_ADDR_TELEGRAM    600    // TelegramSettings (~77 Bytes)
 
 // Zugriff auf Settings (in storage.cpp definiert)
@@ -95,3 +97,7 @@ void loadMotorPositions();
 
 // Endschalter-Einstellung
 void loadLimitSwitchSetting();
+
+// Stalllicht-Einstellungen
+void saveStallLightSettings();
+void loadStallLightSettings();

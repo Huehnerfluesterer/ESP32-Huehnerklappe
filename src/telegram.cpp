@@ -24,7 +24,7 @@ bool telegramSendRaw(const String &text)
 
     WiFiClientSecure client;
     client.setInsecure();  // Kein Zertifikat-Check – für lokale Nutzung ausreichend
-    client.setTimeout(5);
+    client.setTimeout(2);  // 2s statt 5s – blockiert sonst den WebServer
 
     if (!client.connect("api.telegram.org", 443)) {
         Serial.println("⚠️ Telegram: Verbindung fehlgeschlagen");
@@ -51,15 +51,12 @@ bool telegramSendRaw(const String &text)
 
     bool ok = false;
     unsigned long t = millis();
-    while (client.connected() && millis() - t < 3000) {
-        if (client.available()) {
-            String line = client.readStringUntil('\n');
-            if (line.indexOf("\"ok\":true") >= 0) {
-                ok = true;
-                break;
-            }
-        }
+    while ((client.connected() || client.available()) && millis() - t < 2000) {
+    if (client.available()) {
+        String line = client.readStringUntil('\n');
+        if (line.indexOf("\"ok\":true") >= 0) { ok = true; break; }
     }
+}
     client.stop();
     if (ok) Serial.println("✅ Telegram: Nachricht gesendet");
     return ok;

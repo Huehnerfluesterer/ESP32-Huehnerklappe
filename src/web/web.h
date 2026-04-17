@@ -4,6 +4,16 @@
 
 extern WebServer server;
 
+// Antwort-Helper mit Connection:close (iOS Safari Fix)
+void sendHTML(const String &html, int code = 200);
+void sendJSON(const String &json, int code = 200);
+void sendPlain(const String &text, int code = 200);
+
+// Chunked Transfer – Seite stückweise senden (TTFB → 0)
+void sendHTMLStart(int code = 200);
+void sendHTMLChunk(const String &chunk);
+void sendHTMLEnd();
+
 // Hilfsfunktionen (gemeinsam von allen Web-Dateien genutzt)
 String renderThemeHead(const String &title);
 String renderFooter();
