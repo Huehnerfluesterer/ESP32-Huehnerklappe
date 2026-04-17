@@ -161,6 +161,8 @@ void reverseAfterBlockade()
     Serial.println("↩️ Rückwärtsfahren nach Blockade");
     lightState = LIGHT_POST_OPEN;
     startLightForMinutes(lampPostOpen);
+    lightOn();
+    lightActive = true;
     motorOpen();
     motorState = MOTOR_OPENING;
     motorUntil = millis() + 800;
@@ -234,6 +236,8 @@ void updateMotor()
                 {
                     lightState = LIGHT_POST_OPEN;
                     startLightForMinutesReset(lampPostOpen);
+                    lightOn();
+                    lightActive = true;
                     addLogWithLux("Locklicht nach Öffnung gestartet", lux);
                 }
                 preLightForecastActive    = false;
@@ -286,7 +290,8 @@ void updateMotor()
                 {
                     lightState = LIGHT_POST_CLOSE;
                     startLightForMinutesReset(lampPostClose);
-                    lightActive = false;
+                    lightOn();
+                    lightActive = true;
                     addLogWithLux("Locklicht nach Schließen gestartet (" + String(lampPostClose) + " min)", lux);
                     if (lampPostClose >= 5)
                     {
@@ -332,6 +337,8 @@ void updateMotor()
             {
                 lightState = LIGHT_POST_OPEN;
                 startLightForMinutesReset(lampPostOpen);
+                lightOn();
+                lightActive = true;
                 addLogWithLux("Locklicht nach Öffnung gestartet", lux);
             }
             lightBelowSince        = 0;
@@ -368,7 +375,8 @@ void updateMotor()
             {
                 lightState = LIGHT_POST_CLOSE;
                 startLightForMinutesReset(lampPostClose);
-                lightActive = false;
+                lightOn();
+                lightActive = true;
                 addLogWithLux("Locklicht nach Schließen gestartet (" + String(lampPostClose) + " min)", lux);
                 if (lampPostClose >= 5)
                 {
