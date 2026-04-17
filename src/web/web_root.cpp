@@ -69,7 +69,6 @@ nav a { flex:1; text-align:center; text-decoration:none; color:var(--muted); fon
 </style>
 <script>
 let inflight = false;
-let last = { date:"", time:"", door:"", automatik:"", next:"", light:"", lightState:"" };
 function tFetch(url,opts){const c=new AbortController();const t=setTimeout(()=>c.abort(),4000);opts=Object.assign({signal:c.signal},opts||{});return fetch(url,opts).finally(()=>clearTimeout(t));}
 async function debounceAction(btn,fn){ if(!btn)return; btn.disabled=true; try{await fn();}finally{setTimeout(()=>btn.disabled=false,350);} }
 async function toggleLockLight(){ const b=document.getElementById('lockLightBtn'); await debounceAction(b,async()=>{await tFetch('/light',{cache:'no-store'});await update();}); }
@@ -79,9 +78,51 @@ async function clearOverride(){await tFetch('/clear-override',{method:'POST'});a
 async function toggleRGB(){ const b=document.getElementById('rgbBtn'); await debounceAction(b,async()=>{await tFetch('/rgbred',{cache:'no-store'});await update();}); }
 async function setRedBright(v){document.getElementById('redBrightVal').innerText=v;const fd=new FormData();fd.append('v',v);await tFetch('/red-brightness',{method:'POST',body:fd});}
 function setDoorButton(label,cls){ const b=document.getElementById('doorBtn'); if(!b)return; b.textContent=label; b.classList.remove('btn-open','btn-close','btn-stop'); b.classList.add(cls); }
+async function update(){
+  if(inflight)return; inflight=true;
+  try{
+    const r=await tFetch('/status',{cache:'no-store'}); const d=await r.json();
+    var e;
+    e=document.getElementById('date');      if(e) e.innerText=d.date||'-';
+    e=document.getElementById('time');      if(e) e.innerText=d.time||'--:--';
+    e=document.getElementById('weather');   if(e){if(d.bmeOk){e.textContent='\u{1F321} '+d.bmeTemp+'\u00B0C  \u{1F4A7}'+d.bmeHumidity+'%  \u{1F32C} '+d.bmePressure+' hPa';e.style.display='block';}else{e.style.display='none';}}
+    e=document.getElementById('door');      if(e){e.innerText=d.door;e.className='badge '+(d.door==='Offen'?'open':'closed');}
+    var moving=(d.moving==='1'),isOpen=(d.door==='Offen');
+    var pct=d.doorPct!==undefined?d.doorPct:(isOpen?100:0);
+    e=document.getElementById('doorBarWrap'); if(e) e.style.display=moving?'block':'none';
+    e=document.getElementById('doorBar');     if(e) e.style.width=pct+'%';
+    e=document.getElementById('doorPct');     if(e) e.textContent=pct;
+    if(moving)      setDoorButton('Stopp','btn-stop');
+    else if(isOpen) setDoorButton('Schließen','btn-close');
+    else            setDoorButton('Öffnen','btn-open');
+    e=document.getElementById('automatik');  if(e) e.innerText=d.automatik||'---';
+    e=document.getElementById('closeWindow');
+    if(e&&d.closeWindowActive!==undefined){
+      if(d.closeWindowActive){e.innerText='\u2705 Aktiv ('+d.closeWindowStart+':00\u2013'+d.closeWindowEnd+':00 Uhr)';e.style.color='var(--green)';}
+      else{e.innerText='\u23F3 Gesperrt \u2013 erlaubt ab '+d.closeWindowStart+':00 Uhr';e.style.color='#e67e22';}
+    }
+    e=document.getElementById('overrideRow');
+    if(e){
+      if(d.overrideSec&&d.overrideSec>0){e.style.display='flex';var m=Math.floor(d.overrideSec/60),s=d.overrideSec%60;var ou=document.getElementById('overrideUntil');if(ou)ou.innerText='noch '+m+'m '+s+'s';}
+      else{e.style.display='none';}
+    }
+    e=document.getElementById('next');       if(e) e.innerText=d.next||'---';
+    e=document.getElementById('light');      if(e) e.innerText=d.light||'---';
+    var sr=document.getElementById('statsRow'),st=document.getElementById('statsText');
+    if(sr&&st&&d.statOpen!==undefined){st.textContent=d.statOpen+'\u00D7 ge\u00F6ffnet \u00B7 '+d.statClose+'\u00D7 geschlossen \u00B7 offen '+d.statDuration;sr.style.display='flex';}
+    e=document.getElementById('sysStatus'); if(e){if(d.sysError==='1'){e.innerHTML='\u2716';e.className='sys-error';}else{e.innerHTML='\u2714';e.className='sys-ok';}}
+    e=document.getElementById('lightState'); if(e){e.innerText=d.lightState;e.className=(d.lightState==='An')?'badge open':'badge closed';}
+    e=document.getElementById('stallLight'); if(e&&d.stallLight){e.innerText=d.stallLight;e.className='badge '+(d.stallLight==='An'?'open':'closed');}
+    e=document.getElementById('rgbred');     if(e&&d.rgbred){e.innerText=d.rgbred;e.className='badge '+(d.rgbred==='An'?'open':'closed');}
+    e=document.getElementById('lockLightBtn');  if(e) e.classList.toggle('on',d.lightState==='An');
+    e=document.getElementById('stallLightBtn'); if(e) e.classList.toggle('on',d.stallLight==='An');
+    e=document.getElementById('rgbBtn');        if(e) e.classList.toggle('on',d.rgbred==='An');
+  }catch(ex){}finally{inflight=false;}
+}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')update();});
-document.addEventListener('DOMContentLoaded',()=>{update();setInterval(update,5000);});
-// SPA-Navigation: fetch() nutzt die bestehende TCP-Verbindung (kein iOS WiFi-Stall)
+// setTimeout(0) = update() läuft NACH dem DOM-Aufbau (auch nach document.write)
+setTimeout(function(){update();setInterval(update,5000);},0);
+// SPA-Navigation
 document.addEventListener('click',function(e){
   var a=e.target.closest('a[href^="/"]');
   if(!a||a.getAttribute('onclick'))return;
@@ -137,60 +178,6 @@ window.addEventListener('popstate',function(){location.reload();});
   <a href="/settings">⚙️<br>Einstellungen</a>
   <a href="/advanced">🔧<br>Erweitert</a>
 </nav>
-<script>
-async function update(){
-  if(inflight)return; inflight=true;
-  try{
-    const r=await tFetch('/status',{cache:'no-store'}); const d=await r.json();
-    if(d.date!==last.date){document.getElementById('date').innerText=d.date;last.date=d.date;}
-    if(d.time!==last.time){document.getElementById('time').innerText=d.time;last.time=d.time;}
-    const wEl=document.getElementById('weather');
-    if(wEl){if(d.bmeOk){wEl.textContent='🌡 '+d.bmeTemp+'°C  💧'+d.bmeHumidity+'%  🌬 '+d.bmePressure+' hPa';wEl.style.display='block';}else{wEl.style.display='none';}}
-    if(d.door!==last.door){const el=document.getElementById('door');el.innerText=d.door;el.className="badge "+(d.door==="Offen"?"open":"closed");last.door=d.door;}
-    const moving=(d.moving==="1"),isOpen=(d.door==="Offen");
-    // Türposition Fortschrittsbalken
-    const pct = d.doorPct !== undefined ? d.doorPct : (isOpen ? 100 : 0);
-    const barWrap = document.getElementById('doorBarWrap');
-    const bar = document.getElementById('doorBar');
-    const pctEl = document.getElementById('doorPct');
-    if(barWrap) barWrap.style.display = moving ? 'block' : 'none';
-    if(bar) bar.style.width = pct + '%';
-    if(pctEl) pctEl.textContent = pct;
-    if(moving)      setDoorButton("Stopp","btn-stop");
-    else if(isOpen) setDoorButton("Schließen","btn-close");
-    else            setDoorButton("Öffnen","btn-open");
-    if(d.automatik!==last.automatik){document.getElementById('automatik').innerText=d.automatik;last.automatik=d.automatik;}
-    if(d.closeWindowActive!==undefined){
-      const el=document.getElementById('closeWindow');
-      if(d.closeWindowActive){el.innerText='✅ Aktiv ('+d.closeWindowStart+':00–'+d.closeWindowEnd+':00 Uhr)';el.style.color='var(--green)';}
-      else{el.innerText='⏳ Gesperrt – erlaubt ab '+d.closeWindowStart+':00 Uhr';el.style.color='#e67e22';}
-    }
-    const overrideRow=document.getElementById('overrideRow');
-    if(d.overrideSec && d.overrideSec>0){
-      overrideRow.style.display='flex';
-      const m=Math.floor(d.overrideSec/60),s=d.overrideSec%60;
-      document.getElementById('overrideUntil').innerText='noch '+m+'m '+s+'s';
-    } else { overrideRow.style.display='none'; }
-    if(d.next!==last.next){document.getElementById('next').innerText=d.next;last.next=d.next;}
-    if(d.light!==last.light){document.getElementById('light').innerText=d.light;last.light=d.light;}
-    const statsRow = document.getElementById('statsRow');
-    const statsEl  = document.getElementById('statsText');
-    if(statsRow && statsEl && d.statOpen !== undefined) {
-        statsEl.textContent = d.statOpen + '× geöffnet · ' + d.statClose + '× geschlossen · offen ' + d.statDuration;
-        statsRow.style.display = 'flex';
-    }
-    const sys=document.getElementById("sysStatus");
-    if(sys){if(d.sysError==="1"){sys.innerHTML="✖";sys.className="sys-error";}else{sys.innerHTML="✔";sys.className="sys-ok";}}
-    if(d.lightState!==last.lightState){const ls=document.getElementById('lightState');ls.innerText=d.lightState;ls.className=(d.lightState==="An")?"badge open":"badge closed";last.lightState=d.lightState;}
-    const stall=document.getElementById("stallLight"); if(stall&&d.stallLight){stall.innerText=d.stallLight;stall.className="badge "+(d.stallLight==="An"?"open":"closed");}
-    const ws=document.getElementById("rgbred");     if(ws&&d.rgbred){ws.innerText=d.rgbred;ws.className="badge "+(d.rgbred==="An"?"open":"closed");}
-    const lockBtn=document.getElementById("lockLightBtn"); const stallBtn=document.getElementById("stallLightBtn"); const wsBtn=document.getElementById("rgbBtn");
-    if(lockBtn)  lockBtn.classList.toggle("on",  d.lightState==="An");
-    if(stallBtn) stallBtn.classList.toggle("on", d.stallLight==="An");
-    if(wsBtn)    wsBtn.classList.toggle("on",    d.rgbred==="An");
-  }catch(e){}finally{inflight=false;}
-}
-</script>
 </body></html>
 )rawliteral";
 

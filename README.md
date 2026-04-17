@@ -187,16 +187,6 @@ WLAN‑Zugangsdaten in `src/config.h`:
 #define WIFI_PASSWORD "dein_passwort"
 ```
 
-> ⚠️ Diese Datei enthält Geheimnisse und muss in `.gitignore`:
->
-> ```
-> src/config.h
-> ```
->
-> Alle weiteren Einstellungen (MQTT, Telegram, RGB, ESP‑NOW‑MACs,
-> Blockade, Motorpositionen, Theme) werden zur Laufzeit über die
-> Web‑Oberfläche gesetzt und im EEPROM/NVS persistiert.
-
 ---
 
 ## Teilprojekte
