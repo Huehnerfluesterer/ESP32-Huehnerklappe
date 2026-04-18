@@ -230,7 +230,7 @@ void handleStatus()
     doc["closeWindowStart"]   = CLOSE_WINDOW_START_H;
     doc["closeWindowEnd"]     = CLOSE_WINDOW_END_H;
     unsigned long nowMs2 = millis();
-    doc["overrideSec"] = (manualOverrideUntil > nowMs2) ? (int)((manualOverrideUntil - nowMs2) / 1000) : 0;
+    doc["overrideSec"] = (manualOverrideUntil > 0 && (long)(manualOverrideUntil - nowMs2) > 0) ? (int)((manualOverrideUntil - nowMs2) / 1000) : 0;
     doc["next"]          = next;
     doc["light"]         = (isfinite(lux) && lux >= 0.0f) ? String(lux, 1) + " lx" : "n/a";
     doc["lightFallback"] = (!lightAutomationAvailable && (openMode == "light" || closeMode == "light")) ? "1" : "0";

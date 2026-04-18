@@ -187,7 +187,7 @@ void updateLightState()
     // Verhindert dass das Licht ewig brennt wenn es vor dem Schließen manuell eingeschaltet war
     if (manualLightActive &&
         (lightState == LIGHT_POST_CLOSE || lightState == LIGHT_POST_OPEN) &&
-        nowMs >= lightStateUntil)
+        lightStateUntil > 0 && (long)(nowMs - lightStateUntil) >= 0)
     {
         if (lightState == LIGHT_POST_OPEN)  addLog("Locklicht nach Öffnung beendet");
         if (lightState == LIGHT_POST_CLOSE) addLog("Locklicht nach Schließen beendet");
@@ -211,7 +211,7 @@ void updateLightState()
     case LIGHT_PRE_CLOSE:
     case LIGHT_POST_CLOSE:
         if (!lightActive) { lightOn(); lightActive = true; }
-        if (nowMs >= lightStateUntil)
+        if (lightStateUntil > 0 && (long)(nowMs - lightStateUntil) >= 0)
         {
             if (lightState == LIGHT_POST_OPEN)  addLog("Locklicht nach Öffnung beendet");
             if (lightState == LIGHT_POST_CLOSE) addLog("Locklicht nach Schließen beendet");
@@ -242,6 +242,6 @@ void updateDimming(unsigned long nowMs)
 // ==================================================
 void updateStallLightTimer(unsigned long nowMs)
 {
-    if (stallLightActive && stallLightAutoOff && stallLightOffTime > 0 && nowMs >= stallLightOffTime)
+    if (stallLightActive && stallLightAutoOff && stallLightOffTime > 0 && (long)(nowMs - stallLightOffTime) >= 0)
         stallLightOff();
 }

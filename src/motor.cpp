@@ -159,6 +159,10 @@ bool isManualAction()
 void reverseAfterBlockade()
 {
     Serial.println("↩️ Rückwärtsfahren nach Blockade");
+    // doorOpen wurde in startMotorClose() bereits auf false gesetzt –
+    // da die Tür aber NICHT geschlossen ist, korrigieren wir das hier
+    doorOpen = true;
+    saveDoorState();
     lightState = LIGHT_POST_OPEN;
     startLightForMinutes(lampPostOpen);
     lightOn();
@@ -309,7 +313,7 @@ void updateMotor()
     }
 
     // ===== TIMEOUT =====
-    if (millis() >= motorUntil)
+    if (millis() - motorStartedAt >= (motorUntil - motorStartedAt))
     {
         motorStop();
 

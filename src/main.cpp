@@ -1,7 +1,7 @@
 // ==========================
 // FIRMWARE VERSION
 // ==========================
-const char *FW_VERSION = "3.0.16";
+const char *FW_VERSION = "3.0.17";
 
 // ==========================
 // INCLUDES
@@ -790,15 +790,8 @@ void loop()
     DateTime now    = nowDT;
     int      nowMin = now.hour() * 60 + now.minute();
 
-    // ===== AUTO-NEUSTART bei VEML-Ausfall (03:00) =====
-    static int lastRestartDay = -1;
-    if (vemlHardError && now.hour() == 3 && now.minute() == 0 && now.day() != lastRestartDay) {
-        lastRestartDay = now.day();
-        addLog("⚠️ VEML-Ausfall: Geplanter Neustart 03:00");
-        loggerUpdate();  // Logs sofort sichern
-        delay(500);
-        ESP.restart();
-    }
+    // VEML-Neustart wird in logic.cpp/runAutomatik() um 03:00 behandelt
+    // (inkl. Statistik-Sicherung vor dem Restart)
 
     // ===== TAGES-STATISTIK um 23:55 per MQTT =====
     static int lastStatDay = -1;

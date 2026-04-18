@@ -52,7 +52,7 @@ int timeToMinutes(const String &t)
 void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
                   bool luxValid, bool luxReady, float /*luxRateFiltered_unused*/)
 {
-    const bool automatikErlaubt = (nowMs >= manualOverrideUntil);
+    const bool automatikErlaubt = (manualOverrideUntil == 0 || (long)(nowMs - manualOverrideUntil) >= 0);
 
     static unsigned long lastDebug = 0;
     if (nowMs - lastDebug > 10000) {
@@ -147,6 +147,7 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
         // Neustart wenn VEML ausgefallen
         if (vemlHardError) {
             addLog("🔄 Automatischer Neustart – VEML7700 ausgefallen");
+            loggerUpdate();  // Logs sofort sichern vor Restart
             delay(500);
             ESP.restart();
         }
@@ -388,36 +389,25 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
         if (!safetyTimeout && ((long)(lightStateUntil - nowMs) < 20000L || inCloseDelay))
             startLightForMinutesReset(1);
 
-        // Fenster-Check entfernt – Schließlogik ignoriert inCloseWindow bewusst
-        // (frühe Sonnenuntergänge im Winter würden sonst blockiert)
-        // Das Locklicht läuft bis die Klappe schließt oder safetyTimeout
-        if (false)
-        {
-            scheduledCloseAt = 0;
-            lightState       = LIGHT_OFF;
-            addLog("Locklicht vor Schließen beendet (Fenster)");
-        }
-        else
-        {
-            const bool abortCandidate =
-                (luxRateFiltered > PRECLOSE_ABORT_POS_RATE) &&
-                (lux >= closeLightThreshold + PRECLOSE_ABORT_MARGIN_LX);
+        // ---- Abbruch-Prüfung: wird es wieder deutlich heller? ----
+        const bool abortCandidate =
+            (luxRateFiltered > PRECLOSE_ABORT_POS_RATE) &&
+            (lux >= closeLightThreshold + PRECLOSE_ABORT_MARGIN_LX);
 
-            if (abortCandidate)
+        if (abortCandidate)
+        {
+            if (closeBrightTrendSince == 0) closeBrightTrendSince = nowMs;
+            if (nowMs - closeBrightTrendSince >= PRECLOSE_ABORT_STABLE_MS)
             {
-                if (closeBrightTrendSince == 0) closeBrightTrendSince = nowMs;
-                if (nowMs - closeBrightTrendSince >= PRECLOSE_ABORT_STABLE_MS)
+                if (!preCloseHoldEnabled || safetyTimeout)
                 {
-                    if (!preCloseHoldEnabled || safetyTimeout)
-                    {
-                        scheduledCloseAt = 0;
-                        lightState       = LIGHT_OFF;
-                        addLog("Locklicht vor Schließen abgebrochen (stabil deutlich heller)");
-                    }
+                    scheduledCloseAt = 0;
+                    lightState       = LIGHT_OFF;
+                    addLog("Locklicht vor Schließen abgebrochen (stabil deutlich heller)");
                 }
             }
-            else closeBrightTrendSince = 0;
         }
+        else closeBrightTrendSince = 0;
     }
 
     // ===== SCHLIESSEN BEI SCHWELLEN-ERFÜLLUNG =====

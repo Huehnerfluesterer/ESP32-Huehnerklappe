@@ -70,6 +70,7 @@ void loadStallLightSettings()
     bool ao; uint8_t min;
     EEPROM.get(EEPROM_ADDR_STALL_AUTO_OFF, ao);
     EEPROM.get(EEPROM_ADDR_STALL_MINUTES,  min);
+    if (ao != true && ao != false) ao = true;  // EEPROM-Garbage → Default
     if (min < 1 || min > 120) min = 1;
     stallLightAutoOff  = ao;
     stallLightMinutes  = min;
