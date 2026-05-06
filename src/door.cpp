@@ -14,6 +14,10 @@ bool         doorOpen         = false;
 DoorPhase    doorPhase        = PHASE_IDLE;
 unsigned long doorOpenedAt    = 0;
 
+// Klappe 2 Zustand
+bool         door2Open        = false;
+DoorPhase    door2Phase       = PHASE_IDLE;
+
 bool         learningActive   = false;
 bool         learningOpenDone = false;
 unsigned long learnStartTime  = 0;

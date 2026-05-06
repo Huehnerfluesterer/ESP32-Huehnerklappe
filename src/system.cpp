@@ -27,28 +27,143 @@ bool errorMQTT      = false;
 bool errorSensor    = false;
 
 // ==================================================
-// HARDWARE-WATCHDOG (ESP32 Task-WDT)
+// CRASH-DIAGNOSTIK (überlebt Restart in RTC-Memory)
 // ==================================================
-// Ersetzt den früheren TPL5110-Hardware-Watchdog. Der ESP32-S3 hat einen
-// internen Watchdog im RTC-Bereich, der unabhängig von der CPU läuft.
-// Wird wdogFeed() länger als WDOG_TIMEOUT_MS nicht aufgerufen, kommt ein
-// sauberer Reset (Reset-Reason: ESP_RST_TASK_WDT).
-#define WDOG_TIMEOUT_MS  30000UL   // 30 s ohne Feed → Reset
+// WICHTIG: RTC_NOINIT_ATTR (statt RTC_DATA_ATTR), weil RTC_DATA_ATTR
+// die Werte beim Boot wieder mit dem Initwert überschreibt!
+// RTC_NOINIT_ATTR Werte bleiben erhalten und werden nur bei Power-Loss gelöscht.
+RTC_NOINIT_ATTR uint32_t diagMinHeap;
+RTC_NOINIT_ATTR uint32_t diagMinStack;
+RTC_NOINIT_ATTR uint32_t diagHeapAtCrash;
+RTC_NOINIT_ATTR uint32_t diagUptimeSeconds;
+RTC_NOINIT_ATTR int8_t   diagLastRSSI;
+RTC_NOINIT_ATTR uint8_t  diagWiFiConnected;
+RTC_NOINIT_ATTR uint32_t diagBootCount;
+RTC_NOINIT_ATTR uint32_t diagMagic;
 
-static unsigned long lastLoopFeed = 0;
-static bool          wdogArmed    = false;
+#define DIAG_MAGIC_VALUE 0xC0DEBABE
 
-// ==================================================
-bool systemError()
+void diagReset()
 {
-    return errorWifi || errorMQTT || errorSensor;
+    diagMinHeap       = UINT32_MAX;
+    diagMinStack      = UINT32_MAX;
+    diagHeapAtCrash   = 0;
+    diagUptimeSeconds = 0;
+    diagLastRSSI      = 0;
+    diagWiFiConnected = 0;
 }
 
-// Funktionsname bewusst beibehalten, damit main.cpp unverändert bleibt.
+void diagLogBootInfo()
+{
+    diagBootCount++;
+
+    // Power-On: Erste Boot, normale Meldung
+    esp_reset_reason_t r = esp_reset_reason();
+    if (r == ESP_RST_POWERON) {
+        addLog("🔢 Boot-Zähler: 1 (Power-On)");
+        return;
+    }
+
+    addLog("🔢 Boot-Zähler: " + String(diagBootCount));
+
+    if (diagMinHeap != UINT32_MAX)
+        addLog("📉 Heap-Minimum vor Restart: " + String(diagMinHeap / 1024) + " KB (" + String(diagMinHeap) + " B)");
+    if (diagHeapAtCrash > 0)
+        addLog("📉 Heap zuletzt: " + String(diagHeapAtCrash / 1024) + " KB");
+    if (diagUptimeSeconds > 0)
+        addLog("⏱️ Uptime vor Restart: " + String(diagUptimeSeconds) + "s (" + String(diagUptimeSeconds / 60) + " min)");
+    if (diagMinStack != UINT32_MAX)
+        addLog("📚 Stack-Minimum (Loop): " + String(diagMinStack) + " Bytes");
+    if (diagLastRSSI != 0)
+        addLog("📶 WiFi vor Restart: " + String(diagWiFiConnected ? "verbunden" : "GETRENNT")
+             + ", RSSI: " + String(diagLastRSSI) + " dBm");
+}
+
+void diagUpdate()
+{
+    uint32_t minH = ESP.getMinFreeHeap();
+    if (minH < diagMinHeap) diagMinHeap = minH;
+
+    UBaseType_t stackLeft = uxTaskGetStackHighWaterMark(NULL);
+    if ((uint32_t)stackLeft < diagMinStack) diagMinStack = (uint32_t)stackLeft;
+
+    // Laufend sichern → nach Crash verfügbar
+    diagUptimeSeconds = millis() / 1000;
+    diagHeapAtCrash   = ESP.getFreeHeap();
+    diagWiFiConnected = WiFi.isConnected() ? 1 : 0;
+    diagLastRSSI      = (int8_t)WiFi.RSSI();
+}
+
+// ==================================================
+// CRASH-BREADCRUMB (überlebt Watchdog-Reset in RTC-Memory)
+// ==================================================
+RTC_NOINIT_ATTR volatile uint8_t crashBreadcrumb;
+RTC_NOINIT_ATTR uint8_t lastRestartSource;
+
+void setCrumb(uint8_t c) { crashBreadcrumb = c; }
+
+String crumbName(uint8_t c) {
+    switch(c) {
+        case CRUMB_IDLE:       return "Idle";
+        case CRUMB_WEBSERVER:  return "WebServer.handleClient()";
+        case CRUMB_MQTT:       return "MQTT";
+        case CRUMB_WIFI:       return "WiFi-Watchdog";
+        case CRUMB_NTP:        return "NTP-Sync";
+        case CRUMB_MOTOR:      return "Motor/Taster";
+        case CRUMB_LUX:        return "Lux-Sensor (I2C)";
+        case CRUMB_I2C_HEALTH: return "Lux-Health/VEML-Reinit";
+        case CRUMB_BME:        return "BME280/Relay/LittleFS";
+        case CRUMB_LITTLEFS:   return "LittleFS-Write";
+        case CRUMB_AUTOMATIK:  return "Automatik-Logik";
+        case CRUMB_TELEGRAM:   return "Telegram (TLS)";
+        case CRUMB_LIGHT:      return "Licht-Zustandsmaschine";
+        default:               return "Unbekannt (" + String(c) + ")";
+    }
+}
+
+String restartSourceName(uint8_t s) {
+    switch(s) {
+        case RESTART_VEML:     return "VEML7700 ausgefallen";
+        case RESTART_OTA:      return "OTA-Update";
+        case RESTART_MQTT_CMD: return "MQTT-Befehl";
+        case RESTART_WEB_UI:   return "WebUI-Neustart";
+        case RESTART_HEAP_LOW: return "Heap kritisch niedrig";
+        default:               return "Unbekannt (Crash/WDT?)";
+    }
+}
+
+// ==================================================
+// HARDWARE-WATCHDOG (ESP32 Task-WDT)
+// ==================================================
+// Einfaches bewährtes System: Der Loop-Task wird direkt vom Task-WDT
+// überwacht. wdogFeed() ruft esp_task_wdt_reset() auf.
+// Timeout 60s → genug für WiFi-Reconnects und TLS-Verbindungen.
+//
+// KEIN separater Guardian-Task, KEIN esp_wifi_stop/start,
+// KEIN IRAM_ATTR shutdown-handler → diese haben Deadlocks verursacht.
+// ==================================================
+
+#define WDOG_TIMEOUT_MS  120000UL   // 120s – WiFi-Stack braucht manchmal 60-90s zum Erholen
+
 void tpl5110Init()
 {
+    // Bei echtem Power-On (Erstaufstarten) NOINIT-Variablen initialisieren.
+    // Bei Software-Reset/WDT/Panic bleiben sie erhalten – das ist der Trick.
+    esp_reset_reason_t bootReason = esp_reset_reason();
+    if (bootReason == ESP_RST_POWERON || diagMagic != DIAG_MAGIC_VALUE) {
+        diagMinHeap        = UINT32_MAX;
+        diagMinStack       = UINT32_MAX;
+        diagHeapAtCrash    = 0;
+        diagUptimeSeconds  = 0;
+        diagLastRSSI       = 0;
+        diagWiFiConnected  = 0;
+        diagBootCount      = 0;
+        diagMagic          = DIAG_MAGIC_VALUE;
+        crashBreadcrumb    = CRUMB_IDLE;
+        lastRestartSource  = RESTART_UNKNOWN;
+    }
+
 #if ESP_IDF_VERSION_MAJOR >= 5
-    // Arduino-ESP32 v3.x / ESP-IDF v5.x – neue Struct-API
     esp_task_wdt_config_t cfg = {
         .timeout_ms     = WDOG_TIMEOUT_MS,
         .idle_core_mask = 0,
@@ -58,18 +173,21 @@ void tpl5110Init()
         esp_task_wdt_init(&cfg);
     }
 #else
-    // Arduino-ESP32 v2.x / ESP-IDF v4.x – alte API (Sekunden, bool)
     esp_task_wdt_init(WDOG_TIMEOUT_MS / 1000, true);
 #endif
-    esp_task_wdt_add(NULL);   // aktuelle (Loop-)Task überwachen
+    esp_task_wdt_add(NULL);   // Loop-Task direkt überwachen
     Serial.printf("✅ Task-Watchdog aktiv (Timeout %lu ms)\n", WDOG_TIMEOUT_MS);
 }
 
 void wdogFeed()
 {
-    lastLoopFeed = millis();
-    wdogArmed    = true;
     esp_task_wdt_reset();
+}
+
+// ==================================================
+bool systemError()
+{
+    return errorWifi || errorMQTT || errorSensor;
 }
 
 void updateSystemHealth()
@@ -77,9 +195,6 @@ void updateSystemHealth()
     errorWifi   = (WiFi.status() != WL_CONNECTED);
     errorMQTT   = (mqttSettings.enabled && !mqttClientConnected());
     errorSensor = (!hasVEML || vemlHardError);
-
-    // Watchdog läuft jetzt in Hardware (esp_task_wdt) – nichts zu tun
-    (void)lastLoopFeed; (void)wdogArmed;
 }
 
 // ==================================================
@@ -117,7 +232,7 @@ void leaveIoSafeState()
 // ==================================================
 // SIMULATIONS-ZEITOFFSET
 // ==================================================
-static long simOffsetSeconds = 0;  // Offset in Sekunden (positiv = vorwärts)
+static long simOffsetSeconds = 0;
 static bool simActive = false;
 
 void simSetOffset(int hours, int minutes)

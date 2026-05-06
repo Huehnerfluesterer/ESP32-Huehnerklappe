@@ -1,9 +1,11 @@
 #include "storage.h"
-#include "door.h"    // doorOpen, doorPhase
-#include "motor.h"   // blockadeEnabled, blockadeThresholdA
+#include "door.h"    // doorOpen, doorPhase, door2Open, door2Phase
+#include "motor.h"   // blockadeEnabled, blockadeThresholdA, door2OpenPosition, ...
+#include "pins.h"    // BLOCKADE_THRESHOLD_A
 #include "bme.h"     // bmeSource
 #include "relay.h"   // relayEnabled, relayMac
 #include "light.h"   // rgbColorR/G/B, rgbBrightness
+#include "telegram.h" // nightAlarmEnabled/H/M
 #include "types.h"
 #include <EEPROM.h>
 #include <Arduino.h>
@@ -364,4 +366,142 @@ void loadCloseDelay()
     EEPROM.get(EEPROM_ADDR_CLOSE_DELAY, val);
     if (val == 0xFF) val = 0;  // nie beschrieben → 0 (kein Delay)
     closeDelayMin = constrain((int)val, 0, 30);
+}
+
+void saveNightAlarm()
+{
+    EEPROM.put(EEPROM_ADDR_NIGHT_ALARM,     nightAlarmEnabled);
+    EEPROM.put(EEPROM_ADDR_NIGHT_ALARM + 1, nightAlarmH);
+    EEPROM.put(EEPROM_ADDR_NIGHT_ALARM + 2, nightAlarmM);
+    EEPROM.commit();
+}
+
+void loadNightAlarm()
+{
+    bool en; uint8_t h, m;
+    EEPROM.get(EEPROM_ADDR_NIGHT_ALARM,     en);
+    EEPROM.get(EEPROM_ADDR_NIGHT_ALARM + 1, h);
+    EEPROM.get(EEPROM_ADDR_NIGHT_ALARM + 2, m);
+    if (en != true && en != false) en = false;
+    if (h > 23) h = 23;
+    if (m > 59) m = 0;
+    nightAlarmEnabled = en;
+    nightAlarmH       = h;
+    nightAlarmM       = m;
+}
+
+// ==================================================
+// KLAPPE 2 – Einstellungen
+// ==================================================
+Door2Settings door2Settings;
+
+String door2OpenMode  = "time";
+String door2CloseMode = "time";
+String door2OpenTime  = "07:00";
+String door2CloseTime = "20:00";
+
+int door2OpenLightThreshold  = 300;
+int door2CloseLightThreshold = 200;
+int door2CloseDelayMin       = 0;
+
+void applyDoor2SettingsToRam()
+{
+    door2OpenMode  = door2Settings.openMode;
+    door2CloseMode = door2Settings.closeMode;
+    door2OpenTime  = door2Settings.openTime;
+    door2CloseTime = door2Settings.closeTime;
+    door2OpenLightThreshold  = door2Settings.openLightThreshold;
+    door2CloseLightThreshold = door2Settings.closeLightThreshold;
+}
+
+void saveDoor2Settings()
+{
+    EEPROM.put(EEPROM_ADDR_DOOR2_SETTINGS, door2Settings);
+    EEPROM.commit();
+}
+
+void loadDoor2Settings()
+{
+    memset(&door2Settings, 0, sizeof(door2Settings));
+    EEPROM.get(EEPROM_ADDR_DOOR2_SETTINGS, door2Settings);
+
+    if (strlen(door2Settings.openMode) == 0)
+    {
+        strcpy(door2Settings.openMode,  "time");
+        strcpy(door2Settings.closeMode, "time");
+        strcpy(door2Settings.openTime,  "07:00");
+        strcpy(door2Settings.closeTime, "20:00");
+        door2Settings.openLightThreshold  = 300;
+        door2Settings.closeLightThreshold = 200;
+        saveDoor2Settings();
+    }
+    applyDoor2SettingsToRam();
+}
+
+void saveDoor2State()
+{
+    EEPROM.put(EEPROM_ADDR_DOOR2_STATE, door2Open);
+    EEPROM.commit();
+}
+
+void loadDoor2State()
+{
+    EEPROM.get(EEPROM_ADDR_DOOR2_STATE, door2Open);
+    if (door2Open != true && door2Open != false)
+    {
+        door2Open  = false;
+        door2Phase = PHASE_IDLE;
+        saveDoor2State();
+    }
+}
+
+void saveDoor2MotorPositions()
+{
+    EEPROM.put(EEPROM_ADDR_DOOR2_OPEN_POS,  door2OpenPosition);
+    EEPROM.put(EEPROM_ADDR_DOOR2_CLOSE_POS, door2ClosePosition);
+    EEPROM.commit();
+}
+
+void loadDoor2MotorPositions()
+{
+    EEPROM.get(EEPROM_ADDR_DOOR2_OPEN_POS,  door2OpenPosition);
+    EEPROM.get(EEPROM_ADDR_DOOR2_CLOSE_POS, door2ClosePosition);
+    if (door2OpenPosition  < 500  || door2OpenPosition  > 60000) door2OpenPosition  = 6000;
+    if (door2ClosePosition < 500  || door2ClosePosition > 60000) door2ClosePosition = 6000;
+    Serial.printf("📦 EEPROM Klappe2: openPos=%ld ms, closePos=%ld ms\n", door2OpenPosition, door2ClosePosition);
+}
+
+void loadDoor2LimitSwitchSetting()
+{
+    EEPROM.get(EEPROM_ADDR_DOOR2_LIMIT_SW, door2UseLimitSwitches);
+    if (door2UseLimitSwitches != true && door2UseLimitSwitches != false)
+        door2UseLimitSwitches = false;
+}
+
+void saveDoor2CloseDelay()
+{
+    uint8_t val = (uint8_t)constrain(door2CloseDelayMin, 0, 30);
+    EEPROM.put(EEPROM_ADDR_DOOR2_CLOSE_DLY, val);
+    EEPROM.commit();
+}
+
+void loadDoor2CloseDelay()
+{
+    uint8_t val;
+    EEPROM.get(EEPROM_ADDR_DOOR2_CLOSE_DLY, val);
+    if (val == 0xFF) val = 0;
+    door2CloseDelayMin = constrain((int)val, 0, 30);
+}
+
+void saveDoor2BlockadeThreshold()
+{
+    EEPROM.put(EEPROM_ADDR_DOOR2_BLOCKADE, door2BlockadeThresholdA);
+    EEPROM.commit();
+}
+
+void loadDoor2BlockadeThreshold()
+{
+    EEPROM.get(EEPROM_ADDR_DOOR2_BLOCKADE, door2BlockadeThresholdA);
+    if (isnan(door2BlockadeThresholdA) || door2BlockadeThresholdA < 0.5f || door2BlockadeThresholdA > 10.0f)
+        door2BlockadeThresholdA = BLOCKADE_THRESHOLD_A;
 }

@@ -40,7 +40,15 @@ extern unsigned long testStartMillis;
 // Sensor initialisieren (gibt true zurück wenn gefunden)
 bool luxInit();
 
-// Rohwert lesen (NAN bei Fehler)
+// Hintergrund-Task starten der getLux() auf Core 0 ausführt.
+// Damit blockiert ein I2C-Hänger nicht den Loop und löst keinen WDT-Reset aus.
+void luxTaskStart();
+
+// Aktuellen Lux-Wert vom Hintergrund-Task abholen (nicht-blockierend).
+// Gibt NAN zurück wenn kein gültiger Wert vorliegt oder Sensor hängt.
+float luxTaskGetValue();
+
+// Rohwert lesen (NAN bei Fehler) – wird intern vom Task aufgerufen
 float getLux();
 
 // Medianfilter (Puffergröße 5)

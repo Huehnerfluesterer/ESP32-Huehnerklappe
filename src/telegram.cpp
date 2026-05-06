@@ -5,12 +5,23 @@
 #include "logger.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <lwip/dns.h>
+#include <lwip/inet.h>
+
+extern void wdogFeed();
+extern RTC_NOINIT_ATTR uint32_t diagUptimeSeconds;  // aus system.cpp
 
 // ==================================================
 // INTERNES
 // ==================================================
 static int    tgDeadlineDay      = -1;   // Tag, an dem Deadline geprüft wurde
+static int    tgNightAlarmDay    = -1;   // Tag, an dem Nacht-Alarm geprüft wurde
 static bool   tgSensorAlertSent  = false;
+
+// Nacht-Alarm Einstellungen
+bool    nightAlarmEnabled = false;
+uint8_t nightAlarmH       = 23;   // Default: 23:00
+uint8_t nightAlarmM       =  0;
 
 // ==================================================
 // RAW SEND (public – auch für Test-Button)
@@ -22,14 +33,49 @@ bool telegramSendRaw(const String &text)
     if (strlen(telegramSettings.chatId) < 1)  return false;
     if (WiFi.status() != WL_CONNECTED)        return false;
 
-    WiFiClientSecure client;
-    client.setInsecure();  // Kein Zertifikat-Check – für lokale Nutzung ausreichend
-    client.setTimeout(2);  // 2s statt 5s – blockiert sonst den WebServer
+    // Nicht senden wenn WiFi-Signal zu schwach (DNS/TLS würde ewig blockieren)
+    int rssi = WiFi.RSSI();
+    if (rssi < -80 && rssi != 0) return false;
 
-    if (!client.connect("api.telegram.org", 443)) {
-        Serial.println("⚠️ Telegram: Verbindung fehlgeschlagen");
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(3);   // 3s für Read/Write
+
+    wdogFeed();
+
+    // DNS-Auflösung mit hartem 3s Timeout über lwip
+    IPAddress ip;
+    {
+        ip_addr_t addr;
+        err_t err = dns_gethostbyname("api.telegram.org", &addr, NULL, NULL);
+        if (err == ERR_OK) {
+            // sofort aufgelöst (im Cache)
+            ip = IPAddress(addr.u_addr.ip4.addr);
+        } else if (err == ERR_INPROGRESS) {
+            // läuft im Hintergrund – mit kurzen Polls warten (max 3s)
+            unsigned long t0 = millis();
+            while (millis() - t0 < 3000) {
+                delay(50);
+                wdogFeed();
+                if (dns_gethostbyname("api.telegram.org", &addr, NULL, NULL) == ERR_OK) {
+                    ip = IPAddress(addr.u_addr.ip4.addr);
+                    break;
+                }
+            }
+        }
+        if ((uint32_t)ip == 0) {
+            Serial.println("⚠️ Telegram: DNS-Timeout");
+            return false;
+        }
+    }
+    wdogFeed();
+
+    // TCP+TLS-Connect mit aufgelöster IP (kein erneutes DNS)
+    if (!client.connect(ip, 443, 5000)) {   // max 5s TCP+TLS
+        Serial.println("⚠️ Telegram: TLS-Verbindung fehlgeschlagen");
         return false;
     }
+    wdogFeed();
 
     // URL-Encoding (nur kritische Zeichen)
     String encoded = text;
@@ -52,11 +98,13 @@ bool telegramSendRaw(const String &text)
     bool ok = false;
     unsigned long t = millis();
     while ((client.connected() || client.available()) && millis() - t < 2000) {
-    if (client.available()) {
-        String line = client.readStringUntil('\n');
-        if (line.indexOf("\"ok\":true") >= 0) { ok = true; break; }
+        wdogFeed();
+        if (client.available()) {
+            String line = client.readStringUntil('\n');
+            if (line.indexOf("\"ok\":true") >= 0) { ok = true; break; }
+        }
+        yield();
     }
-}
     client.stop();
     if (ok) Serial.println("✅ Telegram: Nachricht gesendet");
     return ok;
@@ -65,6 +113,8 @@ bool telegramSendRaw(const String &text)
 // ==================================================
 // PUBLIC
 // ==================================================
+static bool pendingWatchdogNotify = false;
+
 void telegramInit()
 {
     if (!telegramSettings.enabled) {
@@ -73,14 +123,26 @@ void telegramInit()
     }
     Serial.println("✅ Telegram-Benachrichtigungen aktiv");
 
-    // Neustart-Grund prüfen
+    // WDT-Benachrichtigung NICHT im Setup senden (kann Boot-Loop verursachen).
+    // Stattdessen Flag setzen → wird im Loop nach 60s gesendet.
+    // ABER: Nur wenn der vorherige Start lange genug lief (>120s),
+    // sonst stecken wir in einer Telegram-Boot-Loop.
     esp_reset_reason_t reason = esp_reset_reason();
     if (reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT) {
-        // Kurz warten bis WiFi verbunden
-        unsigned long t0 = millis();
-        while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000) delay(200);
-        telegramWatchdogRestart();
+        if (diagUptimeSeconds > 120)  // Letzter Lauf > 2 min → kein Boot-Loop
+            pendingWatchdogNotify = true;
+        else
+            Serial.println("⚠️ Telegram WDT-Benachrichtigung übersprungen (möglicher Boot-Loop)");
     }
+}
+
+void telegramCheckPending()
+{
+    if (!pendingWatchdogNotify) return;
+    if (WiFi.status() != WL_CONNECTED) return;
+    if (millis() < 60000UL) return;   // 60s warten statt 30s
+    pendingWatchdogNotify = false;
+    telegramWatchdogRestart();
 }
 
 void telegramSend(const String &msg)
@@ -138,6 +200,28 @@ void telegramDeadlineCheck()
             telegramSend("⚠️ Klappe noch geschlossen!\nEs ist " + String(buf) +
                          " Uhr und die Klappe ist noch nicht geöffnet.");
             addLog("📱 Telegram: Klappe nicht geöffnet bis " + String(buf));
+        }
+    }
+}
+
+void telegramNightCheck()
+{
+    if (!telegramSettings.enabled) return;
+    if (!nightAlarmEnabled) return;
+    if (!rtcOk) return;
+    DateTime now = nowRTC();
+
+    if (now.hour()   == nightAlarmH &&
+        now.minute() == nightAlarmM &&
+        now.day()    != tgNightAlarmDay)
+    {
+        tgNightAlarmDay = now.day();
+        if (doorOpen) {
+            char buf[6]; snprintf(buf, sizeof(buf), "%02d:%02d",
+                nightAlarmH, nightAlarmM);
+            telegramSend("🚨 Klappe noch offen!\nEs ist " + String(buf) +
+                         " Uhr und die Klappe ist noch nicht geschlossen.\nBitte prüfen – Gefahr durch Raubtiere!");
+            addLog("📱 Telegram: Nacht-Alarm – Klappe um " + String(buf) + " noch offen");
         }
     }
 }

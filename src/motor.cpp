@@ -127,6 +127,11 @@ void motorClose()
 
 void startMotorOpen(unsigned long durationMs)
 {
+    // Mutual Exclusion: ACS712 wird geteilt
+    if (motor2State != MOTOR_STOPPED) {
+        addLog("⚠️ Klappe1: Öffnung blockiert – Klappe 2 Motor läuft");
+        return;
+    }
     motorOpen();
     motorState        = MOTOR_OPENING;
     motorUntil        = millis() + durationMs;
@@ -137,8 +142,15 @@ void startMotorOpen(unsigned long durationMs)
 
 void startMotorClose(unsigned long durationMs)
 {
-    // Sofort als geschlossen markieren – verhindert Doppel-Schließen nach TPL5110-Reset
-    doorOpen = false;
+    // Mutual Exclusion: ACS712 wird geteilt
+    if (motor2State != MOTOR_STOPPED) {
+        addLog("⚠️ Klappe1: Schließen blockiert – Klappe 2 Motor läuft");
+        return;
+    }
+    // doorOpen wird ERST nach Abschluss des Schließvorgangs auf false gesetzt.
+    // Bei einem Reset während des Schließens bleibt der Zustand somit "offen"
+    // und die Automatik kann nach dem Boot korrekt erneut schließen.
+    doorPhase = PHASE_CLOSING;
     saveDoorState();
     motorClose();
     motorState        = MOTOR_CLOSING;
@@ -393,5 +405,240 @@ void updateMotor()
             motorReason = "";
         }
         motorState = MOTOR_STOPPED;
+    }
+}
+
+// ==================================================
+// KLAPPE 2 – L298N KANAL B
+// ==================================================
+
+MotorState    motor2State   = MOTOR_STOPPED;
+unsigned long motor2Until   = 0;
+String        motor2Reason  = "";
+
+bool         actionLock2     = false;
+unsigned long limit2OpenSince  = 0;
+unsigned long limit2CloseSince = 0;
+
+long door2OpenPosition  = 6000;
+long door2ClosePosition = 6000;
+bool door2UseLimitSwitches = false;
+unsigned long motor2StartedAt = 0;
+float door2BlockadeThresholdA = BLOCKADE_THRESHOLD_A;
+
+// Tages-Statistik Klappe 2
+static int           stat2OpenCount      = 0;
+static int           stat2CloseCount     = 0;
+static unsigned long stat2OpenDurationMs = 0;
+static unsigned long stat2OpenStart      = 0;
+
+// ==================================================
+bool isAnyMotorRunning()
+{
+    return (motorState != MOTOR_STOPPED) || (motor2State != MOTOR_STOPPED);
+}
+
+void motor2Init()
+{
+    pinMode(MOTOR2_IN1, OUTPUT); digitalWrite(MOTOR2_IN1, LOW);
+    pinMode(MOTOR2_IN2, OUTPUT); digitalWrite(MOTOR2_IN2, LOW);
+    pinMode(MOTOR2_ENB, OUTPUT); digitalWrite(MOTOR2_ENB, LOW);
+    delay(10);
+    ledcSetup(4, 2000, 8);
+    ledcAttachPin(MOTOR2_ENB, 4);
+    ledcWrite(4, 0);
+    Serial.println("✅ LEDC Motor2-PWM initialisiert (GPIO " + String(MOTOR2_ENB) + ", Kanal 4)");
+}
+
+void motor2Stop()
+{
+    digitalWrite(MOTOR2_IN1, LOW);
+    digitalWrite(MOTOR2_IN2, LOW);
+    ledcWrite(4, 0);
+}
+
+void motor2Open()
+{
+    digitalWrite(MOTOR2_IN1, HIGH);
+    digitalWrite(MOTOR2_IN2, LOW);
+    ledcWrite(4, 180);
+}
+
+void motor2Close()
+{
+    digitalWrite(MOTOR2_IN1, LOW);
+    digitalWrite(MOTOR2_IN2, HIGH);
+    ledcWrite(4, 180);
+}
+
+void startMotor2Open(unsigned long durationMs)
+{
+    // Mutual Exclusion: ACS712 wird geteilt
+    if (motorState != MOTOR_STOPPED) {
+        addLog("⚠️ Klappe2: Öffnung blockiert – Klappe 1 Motor läuft");
+        return;
+    }
+    motor2Open();
+    motor2State       = MOTOR_OPENING;
+    motor2Until       = millis() + durationMs;
+    currentCalibrated = false;
+    motor2StartedAt   = millis();
+    motorStartedAt    = millis();  // ACS712 Timing gemeinsam
+}
+
+void startMotor2Close(unsigned long durationMs)
+{
+    // Mutual Exclusion: ACS712 wird geteilt
+    if (motorState != MOTOR_STOPPED) {
+        addLog("⚠️ Klappe2: Schließen blockiert – Klappe 1 Motor läuft");
+        return;
+    }
+    door2Open = false;
+    saveDoor2State();
+    motor2Close();
+    motor2State       = MOTOR_CLOSING;
+    motor2Until       = millis() + durationMs;
+    currentCalibrated = false;
+    motor2StartedAt   = millis();
+    motorStartedAt    = millis();  // ACS712 Timing gemeinsam
+}
+
+bool isManualAction2()
+{
+    return motor2Reason.indexOf("manuell") >= 0 ||
+           motor2Reason.indexOf("Taster")  >= 0 ||
+           motor2Reason.indexOf("Web")     >= 0;
+}
+
+void reverseAfterBlockade2()
+{
+    Serial.println("↩️ Rückwärtsfahren Klappe2 nach Blockade");
+    door2Open = true;
+    saveDoor2State();
+    motor2Open();
+    motor2State = MOTOR_OPENING;
+    motor2Until = millis() + 800;
+}
+
+// ==================================================
+// UPDATE MOTOR 2 (zyklisch in loop())
+// ==================================================
+void updateMotor2()
+{
+    if (motor2State == MOTOR_STOPPED) return;
+
+    // ===== STROMMESSUNG (immer, unabhängig von Blockadeerkennung) =====
+    static unsigned long lastCurrentCheck2 = 0;
+    if (millis() - motor2StartedAt > 200UL && millis() - lastCurrentCheck2 > 200UL)
+    {
+        lastCurrentCheck2 = millis();
+        float ampsNow = measureCurrentAmps();
+        if (ampsNow > peakCurrentA) peakCurrentA = ampsNow;
+    }
+
+    // ===== BLOCKADEERKENNUNG (ACS712 – gemeinsam) =====
+    static unsigned long lastBlockadeCheck2 = 0;
+    if (millis() - motor2StartedAt > 500UL)
+    {
+        if (!currentCalibrated)
+        {
+            calibrateBaseline();
+        }
+        else if (blockadeEnabled && millis() - lastBlockadeCheck2 > 200UL)
+        {
+            lastBlockadeCheck2 = millis();
+            float amps = measureCurrentAmps();
+            if (!isnan(door2BlockadeThresholdA) && amps > currentBaseline + door2BlockadeThresholdA)
+            {
+                Serial.printf("🚨 Blockade Klappe2! %.2f A (Baseline %.2f A)\n",
+                              amps, currentBaseline);
+                addLog(String("Blockade Klappe2 (") + String(amps, 1) + "A)");
+                motor2Stop();
+                motor2State       = MOTOR_STOPPED;
+                currentCalibrated = false;
+                reverseAfterBlockade2();
+                return;
+            }
+        }
+    }
+
+    // ===== ENDSCHALTER ÖFFNEN (Klappe 2) =====
+    if (door2UseLimitSwitches && motor2State == MOTOR_OPENING)
+    {
+        if (digitalRead(LIMIT2_OPEN_PIN) == LOW)
+        {
+            if (limit2OpenSince == 0) limit2OpenSince = millis();
+            if (millis() - limit2OpenSince > LIMIT_DEBOUNCE_MS)
+            {
+                motor2Stop();
+                door2Open     = true;
+                door2Phase    = PHASE_OPEN;
+                actionLock2   = false;
+                stat2OpenCount++; stat2OpenStart = millis();
+                saveDoor2State();
+                addLog("Endschalter Klappe2 OBEN erreicht");
+                motor2State    = MOTOR_STOPPED;
+                limit2OpenSince = 0;
+                motor2Reason    = "";
+                return;
+            }
+        }
+        else { limit2OpenSince = 0; }
+    }
+
+    // ===== ENDSCHALTER SCHLIESSEN (Klappe 2) =====
+    if (door2UseLimitSwitches && motor2State == MOTOR_CLOSING)
+    {
+        if (digitalRead(LIMIT2_CLOSE_PIN) == LOW)
+        {
+            if (limit2CloseSince == 0) limit2CloseSince = millis();
+            if (millis() - limit2CloseSince > LIMIT_DEBOUNCE_MS)
+            {
+                motor2Stop();
+                door2Open   = false;
+                door2Phase  = PHASE_IDLE;
+                actionLock2 = false;
+                if (stat2OpenStart > 0) { stat2OpenDurationMs += millis() - stat2OpenStart; stat2OpenStart = 0; }
+                stat2CloseCount++;
+                saveDoor2State();
+                addLog("Endschalter Klappe2 UNTEN erreicht");
+                motor2State     = MOTOR_STOPPED;
+                limit2CloseSince = 0;
+                motor2Reason    = "";
+                return;
+            }
+        }
+        else { limit2CloseSince = 0; }
+    }
+
+    // ===== TIMEOUT =====
+    if (millis() - motor2StartedAt >= (motor2Until - motor2StartedAt))
+    {
+        motor2Stop();
+
+        if (motor2State == MOTOR_OPENING)
+        {
+            door2Open     = true;
+            door2Phase    = PHASE_OPEN;
+            actionLock2   = false;
+            stat2OpenCount++; stat2OpenStart = millis();
+            saveDoor2State();
+
+            addLog("Klappe2 geöffnet (" + motor2Reason + ")");
+            motor2Reason = "";
+        }
+        else if (motor2State == MOTOR_CLOSING)
+        {
+            door2Open   = false;
+            door2Phase  = PHASE_IDLE;
+            actionLock2 = false;
+            if (stat2OpenStart > 0) { stat2OpenDurationMs += millis() - stat2OpenStart; stat2OpenStart = 0; }
+            stat2CloseCount++;
+            saveDoor2State();
+
+            addLog("Klappe2 geschlossen (" + motor2Reason + ")");
+            motor2Reason = "";
+        }
+        motor2State = MOTOR_STOPPED;
     }
 }

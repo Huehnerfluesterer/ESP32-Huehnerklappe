@@ -16,3 +16,10 @@ void telegramDoorClosed(const String &reason, float lux);
 void telegramSensorError();
 void telegramWatchdogRestart();
 void telegramDeadlineCheck();   // im loop() täglich um TELEGRAM_OPEN_DEADLINE prüfen
+void telegramNightCheck();     // im loop() abends prüfen ob Tür noch offen
+void telegramCheckPending();   // Verzögerte WDT-Benachrichtigung
+
+// Nacht-Alarm Einstellungen (in EEPROM persistiert)
+extern bool    nightAlarmEnabled;
+extern uint8_t nightAlarmH;
+extern uint8_t nightAlarmM;

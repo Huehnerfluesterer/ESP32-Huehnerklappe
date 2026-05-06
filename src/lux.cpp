@@ -5,6 +5,19 @@
 #include <Adafruit_VEML7700.h>
 #include <Wire.h>
 #include <math.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+// ==================================================
+// LUX-TASK auf Core 0
+// ==================================================
+// Liest den VEML7700 alle 1s in einem eigenen FreeRTOS-Task auf Core 0.
+// Wenn der Sensor hängt, blockiert nur dieser Task – der Haupt-Loop auf
+// Core 1 läuft weiter und der WDT feuert nicht.
+// ==================================================
+static volatile float    luxTaskLatest    = NAN;
+static volatile uint32_t luxTaskUpdatedMs = 0;
+static TaskHandle_t      luxTaskHandle    = NULL;
 
 // Forward-Deklarationen (Definitionen weiter unten)
 static bool  simLuxActive  = false;
@@ -86,9 +99,38 @@ float getLux()
     // Manueller Sim-Override hat höchste Priorität
     if (simLuxIsActive()) return simLuxGetValue();
     if (!hasVEML) return NAN;
+
+    // Cooldown nach Hänger – verhindert tight loop in den nächsten Versuch
+    static unsigned long luxBlockedUntil = 0;
+    if (millis() < luxBlockedUntil) return NAN;
+
+    // Schneller Ping vor jedem Lese-Versuch
+    Wire.setTimeOut(10);
+    Wire.beginTransmission(0x10);
+    uint8_t err = Wire.endTransmission();
+    if (err != 0) {
+        Wire.setTimeOut(20);
+        // Sensor antwortet nicht mehr → als ausgefallen markieren,
+        // damit checkLuxHealth den Reinit über i2cBusRecover() triggert
+        hasVEML = false;
+        return NAN;
+    }
+
+    // Hartes Zeit-Budget für readLux: max. 50ms.
     Wire.setTimeOut(15);
+    unsigned long t0 = millis();
     float val = veml.readLux();
+    unsigned long elapsed = millis() - t0;
     Wire.setTimeOut(20);
+
+    if (elapsed > 50) {
+        Serial.printf("⚠️ readLux brauchte %lums – Sensor-Reinit\n", elapsed);
+        addLog("⚠️ Lux-Sensor blockiert " + String(elapsed) + "ms – Reinit");
+        luxBlockedUntil = millis() + 5000;
+        hasVEML = false;  // → triggert reinitVEML7700() in checkLuxHealth
+        return NAN;
+    }
+
     if (!isfinite(val) || val < 0 || val > 120000) return NAN;
     autoRangeVEML(val);
     return val;
@@ -147,8 +189,13 @@ void checkLuxHealth(unsigned long nowMs, float rawLux, bool luxValid)
         vemlHardError = true;
         hasVEML       = false;
         Serial.println("❌ VEML Hard-Error");
-        addLog("VEML7700 Hard-Error");
-        telegramSensorError();
+        // Nur einmal loggen, nicht bei jedem Reinit-Zyklus erneut
+        static unsigned long lastHardErrorLog = 0;
+        if (nowMs - lastHardErrorLog > 600000UL) {  // max alle 10 min
+            addLog("⚠️ VEML7700 Hard-Error (kein gültiger Wert seit 60s)");
+            lastHardErrorLog = nowMs;
+            telegramSensorError();
+        }
     }
 
     // Periodischer Reinit-Versuch solange Sensor ausgefallen.
@@ -187,8 +234,8 @@ void i2cBusRecover()
     Wire.end();
     delay(20);
     Wire.begin(I2C_SDA, I2C_SCL);
-    Wire.setClock(30000);
-    Wire.setTimeOut(50);
+    Wire.setClock(100000);   // ZURÜCK auf 100 kHz (war 30 kHz – verlangsamte alles!)
+    Wire.setTimeOut(20);     // ZURÜCK auf 20ms
     Serial.println("✅ I2C BUS RECOVERY DONE");
 }
 
@@ -197,7 +244,15 @@ void i2cBusRecover()
 // ==================================================
 void reinitVEML7700()
 {
-    if (millis() - lastVemlReinit < VEML_REINIT_COOLDOWN) return;
+    // Exponentielles Backoff: 15s → 30s → 1min → 5min → 15min → 60min
+    // Verhindert Logspam und unnötige I2C-Aktivität bei dauerhaft defektem Sensor
+    static uint32_t reinitFailCount = 0;
+    static const unsigned long backoff[] = {15000UL, 30000UL, 60000UL, 300000UL, 900000UL, 3600000UL};
+    static const int backoffSize = sizeof(backoff) / sizeof(backoff[0]);
+    int idx = (reinitFailCount < (uint32_t)backoffSize) ? reinitFailCount : backoffSize - 1;
+    unsigned long currentCooldown = backoff[idx];
+
+    if (millis() - lastVemlReinit < currentCooldown) return;
     lastVemlReinit = millis();
 
     Serial.println("🔄 VEML Reinit...");
@@ -214,14 +269,24 @@ void reinitVEML7700()
         luxFailCount = 0;
         vemlSoftError = false;
         vemlHardError = false;
+        reinitFailCount = 0;  // Reset bei Erfolg
 
         Serial.println("✅ VEML reinitialisiert");
-        addLog("VEML7700 reinitialisiert");
+        // Nur loggen wenn der Sensor vorher schon mal erfolgreich war
+        // (verhindert Spam beim Erstboot ohne Sensor)
+        static bool wasLoggedOnce = false;
+        if (wasLoggedOnce) addLog("✅ VEML7700 reinitialisiert");
+        wasLoggedOnce = true;
     }
     else
     {
         hasVEML = false;
-        Serial.println("❌ VEML Reinit fehlgeschlagen");
+        reinitFailCount++;
+        Serial.printf("❌ VEML Reinit fehlgeschlagen (Versuch %u, nächster in %lus)\n",
+                      reinitFailCount, backoff[idx < backoffSize - 1 ? idx + 1 : idx] / 1000);
+        // Nur bei bestimmten Fail-Counts loggen, nicht jedes Mal
+        if (reinitFailCount == 1 || reinitFailCount == 5 || reinitFailCount == 20)
+            addLog("⚠️ VEML7700 nicht erreichbar (Versuch " + String(reinitFailCount) + ")");
     }
 }
 
@@ -265,3 +330,45 @@ void simLuxClear()
 
 bool  simLuxIsActive()  { return simLuxActive; }
 float simLuxGetValue()  { return simLuxValue; }
+
+// ==================================================
+// LUX-TASK (Core 0)
+// ==================================================
+// Läuft separat vom Loop. Ein blockierender readLux() hängt nur
+// diesen Task auf, nicht den Hauptloop → kein WDT-Reset mehr durch I2C.
+static void luxTaskFunction(void *param)
+{
+    Serial.println("✅ Lux-Task gestartet auf Core 0");
+    for (;;) {
+        if (hasVEML) {
+            float val = getLux();   // kann blockieren – egal, nur dieser Task hängt
+            if (isfinite(val)) {
+                luxTaskLatest    = val;
+                luxTaskUpdatedMs = millis();
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));   // 1 Hz
+    }
+}
+
+void luxTaskStart()
+{
+    if (luxTaskHandle) return;
+    xTaskCreatePinnedToCore(
+        luxTaskFunction,
+        "luxTask",
+        4096,           // Stack
+        NULL,
+        1,              // Priorität (niedrig – darf vom Loop verdrängt werden)
+        &luxTaskHandle,
+        0               // Core 0 (Loop läuft auf Core 1)
+    );
+}
+
+float luxTaskGetValue()
+{
+    // Wenn der letzte gültige Wert älter als 30s ist → NAN
+    // (Sensor hängt oder Task wurde gekillt)
+    if (millis() - luxTaskUpdatedMs > 30000UL) return NAN;
+    return luxTaskLatest;
+}

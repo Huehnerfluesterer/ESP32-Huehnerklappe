@@ -6,6 +6,7 @@
 #include "storage.h"
 #include "logger.h"
 #include "relay.h"
+#include "system.h"
 #include <math.h>
 
 // ==================================================
@@ -66,6 +67,9 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
     if (!catchUpDone && nowMs > 30000UL && nowMs < 600000UL)
     {
         catchUpDone = true;
+        const bool inOpenWindowCatchUp  = (now.hour() >= OPEN_WINDOW_START_H  && now.hour() <= OPEN_WINDOW_END_H);
+        const bool inCloseWindowCatchUp = (now.hour() >= CLOSE_WINDOW_START_H && now.hour() <= CLOSE_WINDOW_END_H);
+
         // Verpasste Öffnung nachholen (Zeitmodus)
         if (!doorOpen && openMode == "time" && automatikErlaubt)
         {
@@ -85,8 +89,21 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
                 addLog("🔁 Catch-up: Öffnung nachgeholt nach Reboot (" + String(missedDiff) + " Min verspätet)");
             }
         }
+        // Verpasste Öffnung nachholen (Lichtmodus)
+        // Lux ist nach 30s Boot stabil genug – Schwellwert sofort prüfen statt 30s Timer
+        if (!doorOpen && openMode == "light" && automatikErlaubt && luxValid && inOpenWindowCatchUp
+            && lux >= openLightThreshold && motorState == MOTOR_STOPPED && !nightLock)
+        {
+            doorPhase   = PHASE_OPENING;
+            motorReason = "Lichtautomatik (Catch-up nach Reboot)";
+            startMotorOpen(openPosition);
+            actionLock        = true;
+            preLightCloseDone = false;
+            preLightOpenDone  = false;
+            relaySendOn();
+            addLog("🔁 Catch-up: Öffnung nachgeholt – Lux " + String(lux, 1) + " ≥ Schwelle " + String(openLightThreshold));
+        }
         // Verpasste Schließung nachholen (Zeitmodus, nur im Schließfenster)
-        const bool inCloseWindowCatchUp = (now.hour() >= CLOSE_WINDOW_START_H && now.hour() <= CLOSE_WINDOW_END_H);
         if (doorOpen && closeMode == "time" && automatikErlaubt && inCloseWindowCatchUp)
         {
             int closeTargetMin = timeToMinutes(closeTime);
@@ -101,6 +118,16 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
                 addLog("🔁 Catch-up: Schließung nachgeholt nach Reboot (" + String(missedDiff) + " Min verspätet)");
                 relaySendOff();
             }
+        }
+        // Verpasste Schließung nachholen (Lichtmodus)
+        if (doorOpen && closeMode == "light" && automatikErlaubt && luxValid && inCloseWindowCatchUp
+            && lux <= closeLightThreshold && motorState == MOTOR_STOPPED)
+        {
+            doorPhase   = PHASE_CLOSING;
+            motorReason = "Lichtautomatik (Catch-up nach Reboot)";
+            startMotorClose(closePosition);
+            relaySendOff();
+            addLog("🔁 Catch-up: Schließung nachgeholt – Lux " + String(lux, 1) + " ≤ Schwelle " + String(closeLightThreshold));
         }
     }
 
@@ -148,6 +175,7 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
         if (vemlHardError) {
             addLog("🔄 Automatischer Neustart – VEML7700 ausgefallen");
             loggerUpdate();  // Logs sofort sichern vor Restart
+            lastRestartSource = RESTART_VEML;
             delay(500);
             ESP.restart();
         }
@@ -465,3 +493,137 @@ void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
 }
 
 
+
+// ==================================================
+// AUTOMATIK KLAPPE 2 (ohne Lichtsteuerung)
+// ==================================================
+static int  lastDoor2OpenActionMin  = -1;
+static int  lastDoor2CloseActionMin = -1;
+static unsigned long door2LightAboveSince = 0;
+static unsigned long door2LightBelowSince = 0;
+
+void runAutomatik2(const DateTime &now, int nowMin, unsigned long nowMs,
+                   bool luxValid, bool luxReady, float /*luxRateFiltered_unused*/)
+{
+    // Keine Automatik wenn ein Motor läuft (Mutual Exclusion)
+    // oder Klappe 2 gerade manuell bedient wird
+    if (motor2State != MOTOR_STOPPED) return;
+
+    const bool inOpenWindow  = (now.hour() >= OPEN_WINDOW_START_H  && now.hour() <= OPEN_WINDOW_END_H);
+    const bool inCloseWindow = (now.hour() >= CLOSE_WINDOW_START_H && now.hour() <= CLOSE_WINDOW_END_H);
+
+    // ===== TAGES-RESET UM 03:00 =====
+    static int lastDoor2ResetDay = -1;
+    if (now.hour() == 3 && now.minute() == 0 && now.day() != lastDoor2ResetDay)
+    {
+        lastDoor2ResetDay = now.day();
+        lastDoor2OpenActionMin  = -1;
+        lastDoor2CloseActionMin = -1;
+    }
+
+    // ===== ZEITMODUS ÖFFNEN =====
+    if (!door2Open && !actionLock2)
+    {
+        int openTargetMin = timeToMinutes(door2OpenTime);
+        int openDiff = nowMin - openTargetMin;
+        if (openDiff < 0) openDiff += 1440;
+        if ((door2OpenMode == "time" || (door2OpenMode == "light" && !lightAutomationAvailable)) &&
+            openDiff <= 1 && lastDoor2OpenActionMin != openTargetMin)
+        {
+            if (!isAnyMotorRunning())
+            {
+                door2Phase    = PHASE_OPENING;
+                motor2Reason  = (door2OpenMode == "light" && !lightAutomationAvailable)
+                              ? "Klappe2 Zeit-Fallback" : "Klappe2 Zeitautomatik";
+                startMotor2Open(door2OpenPosition);
+                actionLock2 = true;
+                lastDoor2OpenActionMin = openTargetMin;
+                addLog("Klappe2 Öffnung gestartet (" + motor2Reason + ")");
+            }
+        }
+    }
+
+    // ===== LICHTMODUS ÖFFNEN =====
+    if (door2OpenMode == "light" && !door2Open && luxValid && inOpenWindow && !actionLock2)
+    {
+        if (lux >= door2OpenLightThreshold)
+        {
+            if (door2LightAboveSince == 0) door2LightAboveSince = nowMs;
+            if (nowMs - door2LightAboveSince >= LIGHT_OPEN_DELAY_MS && !isAnyMotorRunning())
+            {
+                door2Phase    = PHASE_OPENING;
+                motor2Reason  = "Klappe2 Lichtautomatik";
+                startMotor2Open(door2OpenPosition);
+                actionLock2          = true;
+                door2LightAboveSince = 0;
+                addLog("Klappe2 Öffnung (Lichtautomatik)");
+            }
+        }
+        else if (lux < door2OpenLightThreshold - OPEN_HYSTERESIS_LX)
+        {
+            door2LightAboveSince = 0;
+        }
+    }
+
+    // ===== ZEITMODUS SCHLIESSEN =====
+    if (door2Open && !actionLock2)
+    {
+        int closeTargetMin = timeToMinutes(door2CloseTime);
+        int closeDiff = nowMin - closeTargetMin;
+        if (closeDiff < 0) closeDiff += 1440;
+        if ((door2CloseMode == "time" || (door2CloseMode == "light" && !lightAutomationAvailable)) &&
+            closeDiff <= 1 && lastDoor2CloseActionMin != closeTargetMin && inCloseWindow)
+        {
+            if (!isAnyMotorRunning())
+            {
+                door2Phase    = PHASE_CLOSING;
+                motor2Reason  = (door2CloseMode == "light" && !lightAutomationAvailable)
+                              ? "Klappe2 Zeit-Fallback" : "Klappe2 Zeitautomatik";
+                startMotor2Close(door2ClosePosition);
+                lastDoor2CloseActionMin = closeTargetMin;
+                addLog("Klappe2 Schließvorgang (" + motor2Reason + ")");
+            }
+        }
+    }
+
+    // ===== LICHTMODUS SCHLIESSEN =====
+    // Debug: alle 60s loggen welche Bedingungen erfüllt/nicht erfüllt sind
+    static unsigned long lastD2DebugLog = 0;
+    if (door2CloseMode == "light" && door2Open && nowMs - lastD2DebugLog > 60000UL)
+    {
+        lastD2DebugLog = nowMs;
+        Serial.printf("🔍 K2-Close-Debug: lux=%.0f thresh=%d luxReady=%d lightAvail=%d actionLock=%d inCloseWin=%d below=%lu\n",
+            lux, door2CloseLightThreshold, luxReady, lightAutomationAvailable, actionLock2, inCloseWindow,
+            door2LightBelowSince > 0 ? (nowMs - door2LightBelowSince)/1000 : 0);
+    }
+
+    if (door2CloseMode == "light" && door2Open && !actionLock2 &&
+        luxReady && nowMs > 60000UL &&
+        lux <= door2CloseLightThreshold && inCloseWindow)
+    {
+        if (door2LightBelowSince == 0) {
+            door2LightBelowSince = nowMs;
+            addLog("Klappe2 Lux-Schwelle erreicht (" + String((int)lux) + " <= " + String(door2CloseLightThreshold) + ")");
+        }
+
+        unsigned long totalDelayMs = LIGHT_DELAY_MS + (unsigned long)door2CloseDelayMin * 60000UL;
+
+        if (nowMs - door2LightBelowSince >= totalDelayMs && !isAnyMotorRunning())
+        {
+            door2Phase        = PHASE_CLOSING;
+            motor2Reason      = "Klappe2 Lichtautomatik";
+            startMotor2Close(door2ClosePosition);
+            actionLock2       = true;
+            door2LightBelowSince = 0;
+            addLog("Klappe2 Schließvorgang (Lichtautomatik)");
+        }
+    }
+    else if (lux > door2CloseLightThreshold + CLOSE_HYSTERESIS_LX)
+    {
+        door2LightBelowSince = 0;
+    }
+
+    // ===== SAFETY: actionLock2 zurücksetzen wenn Motor steht =====
+    if (motor2State == MOTOR_STOPPED)
+        actionLock2 = false;
+}

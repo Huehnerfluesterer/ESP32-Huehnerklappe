@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 // ==================================================
-// MOTORSTEUERUNG
+// MOTORSTEUERUNG – Klappe 1 (L298N Kanal A)
 // ==================================================
 
 extern MotorState    motorState;
@@ -48,10 +48,44 @@ bool isManualAction();
 // Zyklischer Update: Endschalter + Timeout + Blockadeerkennung
 void updateMotor();
 
-// ACS712 Blockadeerkennung
+// ACS712 Blockadeerkennung (gemeinsam für beide Kanäle)
 extern float         currentBaseline;
 extern bool          currentCalibrated;
 extern unsigned long motorStartedAt;
 extern bool          blockadeEnabled;
 extern float         blockadeThresholdA;
 extern float         peakCurrentA;
+
+// Klappe 2 eigene Blockade-Schwelle
+extern float         door2BlockadeThresholdA;
+
+// ==================================================
+// MOTORSTEUERUNG – Klappe 2 (L298N Kanal B)
+// ==================================================
+
+extern MotorState    motor2State;
+extern unsigned long motor2Until;
+extern String        motor2Reason;
+
+extern long door2OpenPosition;
+extern long door2ClosePosition;
+
+extern bool         door2UseLimitSwitches;
+extern unsigned long limit2OpenSince;
+extern unsigned long limit2CloseSince;
+
+extern bool actionLock2;
+extern unsigned long motor2StartedAt;
+
+// Prüft ob irgendein Motor gerade läuft (Mutual Exclusion für ACS712)
+bool isAnyMotorRunning();
+
+void motor2Init();
+void motor2Stop();
+void motor2Open();
+void motor2Close();
+void startMotor2Open(unsigned long durationMs);
+void startMotor2Close(unsigned long durationMs);
+void reverseAfterBlockade2();
+bool isManualAction2();
+void updateMotor2();

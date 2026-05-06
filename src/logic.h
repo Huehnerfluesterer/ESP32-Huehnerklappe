@@ -54,3 +54,7 @@ int timeToMinutes(const String &t);
 // Haupt-Automatik: einmal pro Loop aufrufen (nach Lux-Update)
 void runAutomatik(const DateTime &now, int nowMin, unsigned long nowMs,
                   bool luxValid, bool luxReady, float luxRateFiltered);
+
+// Klappe 2 Automatik (ohne Lichtsteuerung)
+void runAutomatik2(const DateTime &now, int nowMin, unsigned long nowMs,
+                   bool luxValid, bool luxReady, float luxRateFiltered);

@@ -58,7 +58,9 @@ a      { touch-action:manipulation; }
 .light-row { display:flex; justify-content:space-between; gap:12px; }
 .light-btn { flex:1; height:56px; border-radius:16px; font-size:20px; background:var(--card); box-shadow:inset 0 1px 3px rgba(0,0,0,0.05),0 4px 12px rgba(0,0,0,0.08); }
 .light-btn.on { background:var(--green); color:white; box-shadow:0 0 10px rgba(34,197,94,0.6); }
-.next-section { font-size:14px; color:var(--muted); line-height:1.4; }
+.next-section { font-size:14px; color:var(--muted); line-height:1.4; margin-top:6px; padding:10px 12px; background:var(--bg); border-radius:12px; }
+.next-section .next-title { font-size:12px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; }
+.next-section .next-value-full { font-size:15px; font-weight:600; color:var(--text); }
 .sys-ok, .sys-error { width:30px; height:30px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:16px; }
 .sys-ok    { background:rgba(34,197,94,0.15); color:var(--green); }
 .sys-error { background:rgba(239,68,68,0.15); color:var(--red); }
@@ -74,6 +76,7 @@ async function debounceAction(btn,fn){ if(!btn)return; btn.disabled=true; try{aw
 async function toggleLockLight(){ const b=document.getElementById('lockLightBtn'); await debounceAction(b,async()=>{await tFetch('/light',{cache:'no-store'});await update();}); }
 async function toggleStallLight(){ const b=document.getElementById('stallLightBtn'); await debounceAction(b,async()=>{await tFetch('/stalllight',{cache:'no-store'});await update();}); }
 async function toggleDoor(){ const b=document.getElementById('doorBtn'); await debounceAction(b,async()=>{await tFetch('/door',{cache:'no-store'});await update();}); }
+async function toggleDoor2(){ const b=document.getElementById('door2Btn'); await debounceAction(b,async()=>{await tFetch('/door2',{cache:'no-store'});await update();}); }
 async function clearOverride(){await tFetch('/clear-override',{method:'POST'});await update();}
 async function toggleRGB(){ const b=document.getElementById('rgbBtn'); await debounceAction(b,async()=>{await tFetch('/rgbred',{cache:'no-store'});await update();}); }
 async function setRedBright(v){document.getElementById('redBrightVal').innerText=v;const fd=new FormData();fd.append('v',v);await tFetch('/red-brightness',{method:'POST',body:fd});}
@@ -95,6 +98,15 @@ async function update(){
     if(moving)      setDoorButton('Stopp','btn-stop');
     else if(isOpen) setDoorButton('Schließen','btn-close');
     else            setDoorButton('Öffnen','btn-open');
+    // Klappe 2
+    e=document.getElementById('door2'); if(e){e.innerText=d.door2||'---';e.className='badge '+(d.door2==='Offen'?'open':'closed');}
+    var moving2=(d.moving2==='1'),isOpen2=(d.door2==='Offen');
+    var b2=document.getElementById('door2Btn');
+    if(b2){
+      if(moving2){b2.textContent='Türe Stopp';b2.classList.remove('btn-open','btn-close');b2.classList.add('btn-stop');}
+      else if(isOpen2){b2.textContent='Türe Schließen';b2.classList.remove('btn-open','btn-stop');b2.classList.add('btn-close');}
+      else{b2.textContent='Türe Öffnen';b2.classList.remove('btn-close','btn-stop');b2.classList.add('btn-open');}
+    }
     e=document.getElementById('automatik');  if(e) e.innerText=d.automatik||'---';
     e=document.getElementById('closeWindow');
     if(e&&d.closeWindowActive!==undefined){
@@ -153,6 +165,7 @@ window.addEventListener('popstate',function(){location.reload();});
       </div>
       <div style="font-size:11px;color:var(--muted);text-align:right;margin-top:2px;"><span id="doorPct">0</span>%</div>
     </div>
+    <div class="status-row"><span class="label">Türe</span>     <span id="door2"      class="badge closed">---</span></div>
     <div class="status-row"><span class="label">Locklicht:</span>      <span id="lightState" class="badge closed">---</span></div>
     <div class="status-row"><span class="label">Stalllicht:</span>     <span id="stallLight" class="badge closed">---</span></div>
     <div class="status-row"><span class="label">RGB Test:</span>    <span id="rgbred"  class="badge closed">---</span></div>
@@ -161,7 +174,7 @@ window.addEventListener('popstate',function(){location.reload();});
     <div class="status-row" id="overrideRow" style="display:none;"><span class="label" style="color:#e67e22;">⏸ Automatik pausiert:</span> <span id="overrideUntil" style="color:#e67e22;font-size:13px;">---</span>&nbsp;<button onclick="clearOverride()" style="font-size:11px;padding:2px 8px;border:1px solid #e67e22;border-radius:6px;background:none;color:#e67e22;cursor:pointer;">Freigeben</button></div>
     <div class="status-row"><span class="label">Helligkeit:</span>     <span id="light">---</span></div>
     <div class="status-row" id="statsRow" style="display:none;"><span class="label">Heute:</span><span id="statsText" style="font-size:12px;color:var(--muted);">---</span></div>
-    <div class="next-section"><div class="next-title">Nächste Aktion:</div><div id="next" class="next-value-full">---</div></div>
+    <div class="next-section"><div class="next-title">⏭ Nächste Aktion</div><div id="next" class="next-value-full">---</div></div>
   </div>
   <div class="card">
     <div class="light-row">
@@ -171,6 +184,7 @@ window.addEventListener('popstate',function(){location.reload();});
     </div>
     <hr>
     <button type="button" id="doorBtn" class="btn-open" onclick="toggleDoor()">Öffnen</button>
+    <button type="button" id="door2Btn" class="btn-open" onclick="toggleDoor2()" style="margin-top:8px;">Türe Öffnen</button>
   </div>
 </div>
 <nav>
@@ -247,6 +261,11 @@ void handleStatus()
     unsigned long openMin = statOpenDurationMs / 60000UL;
     doc["statDuration"]  = String(openMin) + " min";
     doc["rgbred"]     = rgbRedActive ? "An" : "Aus";
+    // Klappe 2
+    doc["door2"]     = door2Open ? "Offen" : "Geschlossen";
+    doc["moving2"]   = (motor2State != MOTOR_STOPPED) ? "1" : "0";
+    doc["door2Bool"] = door2Open ? "1" : "0";
+
     doc["bmeOk"]      = bmeOk;
     if (bmeOk) {
         doc["bmeTemp"]     = String(bmeTemp,     1);

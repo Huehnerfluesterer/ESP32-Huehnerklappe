@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include "esp_task_wdt.h"
 
 
 extern const char *FW_VERSION;
@@ -22,7 +23,17 @@ PubSubClient mqttClient(mqttWifi);
 
 static unsigned long mqttLastConnectAttempt = 5000UL;  // 5s Boot-Verzögerung
 static unsigned long mqttLastStatus         = 0;
+static unsigned long mqttRetryInterval      = 30000UL;  // Start: 30s, steigt bis 5min
+static bool          mqttWasConnected       = false;    // für Log-Spam-Vermeidung
 const  unsigned long MQTT_STATUS_INTERVAL_MS = 10000UL;
+
+// ---- Crash-Schutz ----
+// WiFi-Disconnect kann den TCP-Socket unter PubSubClient wegziehen.
+// Wenn PubSubClient dann .loop(), .connected() oder .disconnect() aufruft,
+// crasht lwIP (use-after-free auf dem PCB). Lösung: Flag das sofort gesetzt
+// wird wenn WiFi verloren geht. Danach wird KEINE PubSubClient-Funktion
+// mehr aufgerufen bis WiFi stabil zurück ist und wir .stop()+.connect() machen.
+static volatile bool mqttSocketSafe = false;
 
 // ==================================================
 // HELPER
@@ -30,22 +41,31 @@ const  unsigned long MQTT_STATUS_INTERVAL_MS = 10000UL;
 static inline String t(const char *sub) { return String(mqttSettings.base) + "/" + sub; }
 static inline void   mqttPublish(const String &topic, const String &payload, bool retained = false)
 {
+    if (!mqttSocketSafe) return;  // Crash-Schutz: kein Zugriff auf toten Socket
     mqttClient.publish(topic.c_str(), payload.c_str(), retained);
 }
 
-bool mqttClientConnected() { return mqttClient.connected(); }
+bool mqttClientConnected() { return mqttSocketSafe && mqttClient.connected(); }
+
+void mqttSafeDisconnect()
+{
+    mqttSocketSafe   = false;
+    mqttWasConnected = false;
+    mqttWifi.stop();     // Nur fd schließen, kein Senden auf totem Socket
+}
 
 // ==================================================
 // PUBLISH
 // ==================================================
 void mqttPublishAvailability(const char *state)
 {
+    if (!mqttSocketSafe) return;
     mqttPublish(t("tele/availability"), state, true);
 }
 
 void mqttPublishRaw(const String &topic, const String &payload)
 {
-    if (!mqttClient.connected()) return;
+    if (!mqttSocketSafe || !mqttClient.connected()) return;
     String fullTopic = String(mqttSettings.base) + "/" + topic;
     mqttClient.publish(fullTopic.c_str(), payload.c_str(), false);
 }
@@ -100,6 +120,9 @@ void mqttPublishStatus()
     doc["statOpen"]   = statOpenCount;
     doc["statClose"]  = statCloseCount;
     doc["statMinOpen"]= (int)(statOpenDurationMs / 60000UL);
+    // Klappe 2
+    doc["door2"]      = door2Open ? "Offen" : "Geschlossen";
+    doc["moving2"]    = (motor2State != MOTOR_STOPPED) ? "1" : "0";
     String out; serializeJson(doc, out);
     mqttPublish(t("tele/status"), out);
 }
@@ -206,6 +229,56 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
         mqttPublishStatus(); return;
     }
 
+    // DOOR2
+    if (top == t("cmnd/door2"))
+    {
+        if (otaInProgress || ioSafeState) { addLog("MQTT: Motor2 gesperrt"); return; }
+        if (cmd == "OPEN" && !door2Open && !isAnyMotorRunning())
+        {
+            door2Phase = PHASE_OPENING; motor2Reason = "manuell/MQTT";
+            startMotor2Open(door2OpenPosition); actionLock2 = true;
+            addLog("Klappe2 Öffnung (MQTT)");
+        }
+        else if (cmd == "CLOSE" && door2Open && !isAnyMotorRunning())
+        {
+            door2Phase = PHASE_CLOSING; motor2Reason = "manuell/MQTT";
+            startMotor2Close(door2ClosePosition); actionLock2 = true;
+            addLog("Klappe2 Schließvorgang (MQTT)");
+        }
+        else if (cmd == "STOP" && motor2State != MOTOR_STOPPED)
+        {
+            motor2Stop(); motor2State = MOTOR_STOPPED;
+            motor2Reason = "Stop/MQTT";
+            door2Phase   = door2Open ? PHASE_OPEN : PHASE_IDLE;
+            addLog("Klappe2 Motor gestoppt (MQTT)");
+        }
+        else if (cmd == "TOGGLE")
+        {
+            if (motor2State != MOTOR_STOPPED)
+            {
+                motor2Stop(); motor2State = MOTOR_STOPPED;
+                door2Phase = door2Open ? PHASE_OPEN : PHASE_IDLE;
+                addLog("Klappe2 Motor gestoppt (MQTT/Toggle)");
+            }
+            else if (!isAnyMotorRunning())
+            {
+                if (door2Open)
+                {
+                    door2Phase = PHASE_CLOSING; motor2Reason = "manuell/MQTT";
+                    startMotor2Close(door2ClosePosition); actionLock2 = true;
+                    addLog("Klappe2 Schließvorgang (MQTT/Toggle)");
+                }
+                else
+                {
+                    door2Phase = PHASE_OPENING; motor2Reason = "manuell/MQTT";
+                    startMotor2Open(door2OpenPosition); actionLock2 = true;
+                    addLog("Klappe2 Öffnung (MQTT/Toggle)");
+                }
+            }
+        }
+        mqttPublishStatus(); return;
+    }
+
     // LIGHT
     if (top == t("cmnd/light"))
     {
@@ -250,6 +323,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
             {
                 int idx = (logIndex + i) % LOG_SIZE;
                 if (logbook[idx].length() > 0) mqttPublishLog(logbook[idx]);
+                if (i % 10 == 0) { yield(); esp_task_wdt_reset(); }
             }
         }
         return;
@@ -260,6 +334,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     {
         addLog("MQTT: Reboot…");
         mqttPublishAvailability("offline");
+        lastRestartSource = RESTART_MQTT_CMD;
         delay(100);
         ESP.restart();
     }
@@ -275,46 +350,119 @@ void mqttSetup()
     mqttClient.setServer(mqttSettings.host, mqttSettings.port);
     mqttClient.setCallback(mqttCallback);
     mqttClient.setBufferSize(1024);
-    mqttClient.setKeepAlive(15);
-    mqttClient.setSocketTimeout(1);  // 1s statt 3s – blockiert sonst den WebServer
+    mqttClient.setKeepAlive(60);     // 60s – 15s war zu aggressiv → ständige Disconnects
+    mqttClient.setSocketTimeout(2);  // 2s – Kompromiss zwischen Blockade und Zuverlässigkeit
+
+    // WiFi-Event-Handler: wird SOFORT aufgerufen wenn WiFi wegfällt,
+    // BEVOR der nächste Loop-Durchlauf PubSubClient anfassen kann.
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        mqttSocketSafe = false;  // Ab jetzt KEINE PubSubClient-Aufrufe mehr!
+    }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 }
 
 static void mqttEnsureConnected()
 {
     // Nicht verbinden wenn deaktiviert oder kein gültiger Host
     if (!mqttSettings.enabled) return;
-    if (strlen(mqttSettings.host) < 4) return;   // mind. "a.bc" – schützt vor EEPROM-Garbage
-    if (mqttClient.connected()) return;
+    if (strlen(mqttSettings.host) < 4) return;
+
+    // WiFi muss stabil stehen bevor wir irgendwas machen
+    if (!WiFi.isConnected()) return;
+
+    // Wenn Socket safe ist: normaler Connected-Check erlaubt
+    if (mqttSocketSafe && mqttClient.connected()) {
+        if (!mqttWasConnected) {
+            addLog("MQTT verbunden");
+            mqttWasConnected = true;
+            mqttRetryInterval = 30000UL;
+        }
+        return;
+    }
+
+    // Gerade verloren? Einmalig loggen
+    if (mqttWasConnected) {
+        mqttWasConnected = false;
+        addLog("MQTT Verbindung verloren");
+    }
+
+    // WiFi-Signal zu schwach? Nicht versuchen
+    int rssi = WiFi.RSSI();
+    if (rssi < -85 && rssi != 0) return;
 
     unsigned long nowMs = millis();
-    // Retry-Intervall 30s – connect() blockiert bis zu socketTimeout (5s)
-    // und würde den Webserver bei 3s-Intervall dauerhaft einfrieren
-    if (nowMs - mqttLastConnectAttempt < 30000UL) return;
+    if (nowMs - mqttLastConnectAttempt < mqttRetryInterval) return;
     mqttLastConnectAttempt = nowMs;
 
+    // ===== SICHERER RECONNECT =====
+    // 1. WiFiClient sauber schließen (fd close, kein Senden auf totem Socket)
+    mqttWifi.stop();
+    delay(10);  // lwIP Socket-Cleanup Zeit geben
+
+    // 2. Prüfen ob WiFi noch da ist (könnte während stop() verloren gegangen sein)
+    if (!WiFi.isConnected()) return;
+
+    wdogFeed();
+
+    // 3. Frischer Connect-Versuch
     String willTopic = t("tele/availability");
     bool ok = (strlen(mqttSettings.user) > 0)
         ? mqttClient.connect(mqttSettings.clientId, mqttSettings.user, mqttSettings.pass, willTopic.c_str(), 0, true, "offline")
         : mqttClient.connect(mqttSettings.clientId, willTopic.c_str(), 0, true, "offline");
 
+    wdogFeed();
+
     if (ok)
     {
+        mqttSocketSafe   = true;   // Socket ist jetzt gültig → PubSubClient-Zugriff erlaubt
+        mqttWasConnected = true;
+        mqttRetryInterval = 30000UL;
         addLog("MQTT verbunden");
         mqttPublishAvailability("online");
         mqttSubscribeAll();
         mqttPublishSettings(true);
         mqttPublishStatus();
     }
-    else addLog("MQTT Verbindung fehlgeschlagen");
+    else
+    {
+        mqttSocketSafe = false;    // Socket ungültig → kein Zugriff
+        mqttWifi.stop();           // Aufräumen
+        // Exponentielles Backoff: 30s → 60s → 120s → 300s (max 5 min)
+        mqttRetryInterval = min(mqttRetryInterval * 2, 300000UL);
+        Serial.printf("[MQTT] Verbindung fehlgeschlagen – nächster Versuch in %lus\n",
+                      mqttRetryInterval / 1000);
+    }
 }
 
 void mqttLoop()
 {
     if (!mqttSettings.enabled)              return;
     if (strlen(mqttSettings.host) < 4)      return;
-    if (!WiFi.isConnected())                return;
+
+    // WiFi weg oder Socket ungültig? 
+    // NICHT mqttClient.disconnect() aufrufen – das sendet auf dem toten Socket → Crash!
+    // Nur Flag setzen und warten bis WiFi zurück ist.
+    if (!WiFi.isConnected()) {
+        if (mqttSocketSafe) {
+            mqttSocketSafe = false;
+            // mqttWifi.stop() hier NICHT aufrufen – Socket könnte schon vom
+            // WiFi-Stack freigegeben sein. Wird in mqttEnsureConnected()
+            // sicher aufgeräumt bevor der nächste connect() kommt.
+        }
+        if (mqttWasConnected) {
+            mqttWasConnected = false;
+            addLog("MQTT Verbindung verloren");
+        }
+        return;
+    }
+
+    // Socket nicht sicher? Reconnect-Logik kümmert sich darum
+    if (!mqttSocketSafe) {
+        mqttEnsureConnected();
+        return;
+    }
+
     mqttEnsureConnected();
-    if (!mqttClient.connected()) return;
+    if (!mqttSocketSafe || !mqttClient.connected()) return;
     mqttClient.loop();
     unsigned long nowMs = millis();
     if (nowMs - mqttLastStatus >= MQTT_STATUS_INTERVAL_MS)

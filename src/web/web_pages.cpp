@@ -45,6 +45,7 @@ void handleAdvanced()
     <a href="/rgb"        class="btn-link btn-open">🎨 Lichtfarbe & Helligkeit</a>
     <a href="/calibration" class="btn-link btn-open">🎯 Kalibrierung</a>
     <a href="/blockade"   class="btn-link btn-open">⚡ Blockadeerkennung</a>
+    <a href="/door2-settings" class="btn-link btn-open">🚪 Klappe 2 Einstellungen</a>
     <a href="/log"        class="btn-link btn-open">📜 Logbuch</a>
     <a href="/fw"         class="btn-link btn-open">⬆️ Firmware Update</a>
     <button onclick="toggleTheme()"                class="btn-open">🌙 Dark/Light Mode</button>
@@ -661,7 +662,7 @@ function togglePass(){const p=document.getElementById("mqttPass");p.type=(p.type
 void handleSaveMqtt()
 {
     mqttSettings.enabled = server.hasArg("enabled");
-    if (!mqttSettings.enabled) mqttClient.disconnect();
+    if (!mqttSettings.enabled) mqttSafeDisconnect();
     strncpy(mqttSettings.host,     server.arg("host").c_str(),     39); mqttSettings.host[39]     = '\0';
     mqttSettings.port = server.arg("port").toInt();
     strncpy(mqttSettings.user,     server.arg("user").c_str(),     31); mqttSettings.user[31]     = '\0';
@@ -669,7 +670,7 @@ void handleSaveMqtt()
     strncpy(mqttSettings.clientId, server.arg("clientId").c_str(), 31); mqttSettings.clientId[31] = '\0';
     strncpy(mqttSettings.base,     server.arg("base").c_str(),     31); mqttSettings.base[31]     = '\0';
     saveMqttSettings();
-    mqttClient.disconnect();
+    mqttSafeDisconnect();
     mqttSetup();
     server.sendHeader("Location", "/mqtt");
     server.client().setNoDelay(true); server.sendHeader("Connection", "close"); server.send(303);
@@ -690,6 +691,10 @@ static void readTelegramForm()
     int h = server.arg("dh").toInt(), m = server.arg("dm").toInt();
     telegramSettings.deadlineH = (uint8_t)constrain(h, 0, 23);
     telegramSettings.deadlineM = (uint8_t)constrain(m, 0, 59);
+    // Nacht-Alarm
+    nightAlarmEnabled = server.hasArg("nNight");
+    nightAlarmH = (uint8_t)constrain(server.arg("nh").toInt(), 0, 23);
+    nightAlarmM = (uint8_t)constrain(server.arg("nm").toInt(), 0, 59);
 }
 
 void handleTelegram()
@@ -718,6 +723,15 @@ void handleTelegram()
           <div class="field"><label>Minute</label><input name="dm" type="number" min="0" max="59" value="%TG_DM%"></div>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:6px;">Ist die Klappe zu dieser Uhrzeit noch geschlossen, wird ein Alarm gesendet.</div>
+      </div>
+      <div class="section">
+        <div class="section-title">🌙 Nacht-Alarm (Tür offen)</div>
+        <div class="field"><label><input type="checkbox" name="nNight" %TG_NN%> Alarm wenn Klappe nachts noch offen</label></div>
+        <div class="row">
+          <div class="field"><label>Stunde</label><input name="nh" type="number" min="0" max="23" value="%TG_NH%"></div>
+          <div class="field"><label>Minute</label><input name="nm" type="number" min="0" max="59" value="%TG_NM%"></div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;">Ist die Klappe zu dieser Uhrzeit noch offen, wird ein Alarm gesendet (Raubtier-Schutz).</div>
       </div>
       <div class="section">
         <div class="section-title">📨 Benachrichtigungen</div>
@@ -772,6 +786,9 @@ function tgTest(){
     html.replace("%TG_CHAT%",    String(telegramSettings.chatId));
     html.replace("%TG_DH%",      String(telegramSettings.deadlineH));
     html.replace("%TG_DM%",      String(telegramSettings.deadlineM));
+    html.replace("%TG_NN%",      nightAlarmEnabled ? "checked" : "");
+    html.replace("%TG_NH%",      String(nightAlarmH));
+    html.replace("%TG_NM%",      String(nightAlarmM));
     sendHTML(html);
 }
 
@@ -779,7 +796,10 @@ void handleSaveTelegram()
 {
     readTelegramForm();
     saveTelegramSettings();
+    saveNightAlarm();
     addLog(String("Telegram ") + (telegramSettings.enabled ? "aktiviert" : "deaktiviert"));
+    if (nightAlarmEnabled)
+        addLog("Nacht-Alarm aktiv um " + String(nightAlarmH) + ":" + (nightAlarmM < 10 ? "0" : "") + String(nightAlarmM));
     server.sendHeader("Location", "/telegram");
     server.client().setNoDelay(true); server.sendHeader("Connection", "close"); server.send(303);
 }

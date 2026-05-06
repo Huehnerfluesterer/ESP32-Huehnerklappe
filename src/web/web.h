@@ -28,6 +28,11 @@ void handleSettings();
 void handleSaveOpen();
 void handleSaveClose();
 
+// Einstellungen Klappe 2
+void handleDoor2Settings();
+void handleSaveDoor2Open();
+void handleSaveDoor2Close();
+
 // Erweitert
 void handleAdvanced();
 void handleEspNow();

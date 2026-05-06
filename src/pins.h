@@ -10,10 +10,15 @@
 //   GPIO 19, 20 → Native USB D+/D–
 // ==================================================
 
-// Motor (L298N)
+// Motor Kanal A – Klappe 1 (L298N)
 #define MOTOR_IN1       15   // war ESP32: 25 (existiert nicht!)
 #define MOTOR_IN2        5   // war 11, Boot-Glitch   // war ESP32: 26 (Flash-Pin)
 #define MOTOR_ENA       13   // war ESP32: 27 (Flash-Pin) – PWM via LEDC
+
+// Motor Kanal B – Klappe 2 (L298N)
+#define MOTOR2_IN1       1   // L298N IN3
+#define MOTOR2_IN2       2   // L298N IN4
+#define MOTOR2_ENB       6   // L298N ENB – PWM via LEDC Kanal 4
 
 // Relais
 #define RELAIS_PIN           18   // Locklicht-Relais (LOW-aktiv)
@@ -36,9 +41,13 @@
 #define I2C_SDA         8    // war ESP32: 21
 #define I2C_SCL         9    // war ESP32: 22
 
-// Endschalter
+// Endschalter Klappe 1
 #define LIMIT_OPEN_PIN  14
 #define LIMIT_CLOSE_PIN 12
+
+// Endschalter Klappe 2
+#define LIMIT2_OPEN_PIN  42
+#define LIMIT2_CLOSE_PIN 38
 
 // RGB LED-Streifen (12V, N-Kanal MOSFETs)
 #define RGB_PIN_R       4

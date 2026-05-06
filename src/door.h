@@ -6,6 +6,10 @@ extern bool         doorOpen;
 extern DoorPhase    doorPhase;
 extern unsigned long doorOpenedAt;
 
+// Klappe 2 Zustand
+extern bool         door2Open;
+extern DoorPhase    door2Phase;
+
 extern bool         learningActive;
 extern bool         learningOpenDone;
 extern unsigned long learnStartTime;

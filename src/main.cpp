@@ -1,7 +1,7 @@
 // ==========================
 // FIRMWARE VERSION
 // ==========================
-const char *FW_VERSION = "3.0.17";
+const char *FW_VERSION = "4.0.1";
 
 // ==========================
 // INCLUDES
@@ -17,6 +17,12 @@ const char *FW_VERSION = "3.0.17";
 #include <LittleFS.h>
 #include <PubSubClient.h>
 #include "esp_task_wdt.h"
+#include "config.h"
+#if __has_include("rom/rtc.h")
+#include "rom/rtc.h"             // rtc_get_reset_reason() per Core
+#elif __has_include("esp32s3/rom/rtc.h")
+#include "esp32s3/rom/rtc.h"
+#endif
 
 #include "pins.h"
 #include "types.h"
@@ -63,6 +69,7 @@ void setup()
 {
 
     Serial.begin(115200);
+    Serial.setTxTimeoutMs(0);  // USB CDC: Nie blockieren wenn kein Host verbunden!
     Serial.println("\n🐔 Hühnerklappe – FW " + String(FW_VERSION));
     tpl5110Init();
 
@@ -84,10 +91,19 @@ void setup()
     loadRgbSettings();
     loadStallLightSettings();
     loadCloseDelay();
+    loadNightAlarm();
+    loadDoor2Settings();
+    loadDoor2State();
+    loadDoor2MotorPositions();
+    loadDoor2LimitSwitchSetting();
+    loadDoor2CloseDelay();
+    loadDoor2BlockadeThreshold();
 
     // ===== GPIO =====
     pinMode(MOTOR_IN1,          OUTPUT); digitalWrite(MOTOR_IN1, LOW);
     pinMode(MOTOR_IN2,          OUTPUT); digitalWrite(MOTOR_IN2, LOW);
+    pinMode(MOTOR2_IN1,         OUTPUT); digitalWrite(MOTOR2_IN1, LOW);
+    pinMode(MOTOR2_IN2,         OUTPUT); digitalWrite(MOTOR2_IN2, LOW);
     pinMode(RELAIS_PIN,         OUTPUT); digitalWrite(RELAIS_PIN, RELAY_OFF);
     pinMode(STALLLIGHT_RELAY_PIN,OUTPUT);digitalWrite(STALLLIGHT_RELAY_PIN, STALLLIGHT_OFF);
     pinMode(BUTTON_PIN,         INPUT_PULLUP);
@@ -95,14 +111,49 @@ void setup()
     pinMode(RED_BUTTON_PIN,     INPUT_PULLUP);
     pinMode(LIMIT_OPEN_PIN,     INPUT_PULLUP);
     pinMode(LIMIT_CLOSE_PIN,    INPUT_PULLUP);
+    pinMode(LIMIT2_OPEN_PIN,    INPUT_PULLUP);
+    pinMode(LIMIT2_CLOSE_PIN,   INPUT_PULLUP);
+
+    // ===== ENDSCHALTER-VERIFIKATION NACH BOOT =====
+    // Korrigiert doorOpen wenn der gespeicherte Zustand nicht zur
+    // tatsächlichen Klappenposition passt (z.B. nach Restart während Schließvorgang)
+    if (useLimitSwitches)
+    {
+        delay(10);  // Pullups stabilisieren lassen
+        bool limitOpenActive  = (digitalRead(LIMIT_OPEN_PIN)  == LOW);
+        bool limitCloseActive = (digitalRead(LIMIT_CLOSE_PIN) == LOW);
+
+        if (limitOpenActive && !doorOpen)
+        {
+            doorOpen  = true;
+            doorPhase = PHASE_OPEN;
+            saveDoorState();
+            addLog("⚠️ Boot-Korrektur: Endschalter OBEN aktiv → Klappe als offen markiert");
+        }
+        else if (limitCloseActive && doorOpen)
+        {
+            doorOpen  = false;
+            doorPhase = PHASE_IDLE;
+            saveDoorState();
+            addLog("⚠️ Boot-Korrektur: Endschalter UNTEN aktiv → Klappe als geschlossen markiert");
+        }
+        // Hinweis: Wenn keiner der Endschalter aktiv ist, vertrauen wir dem
+        // gespeicherten EEPROM-Wert. doorOpen wird erst NACH erfolgreichem
+        // Schließvorgang auf false gesetzt – ein Reset während des Schließens
+        // hinterlässt also doorOpen=true, was korrekt ist (Tür ist noch offen).
+    }
 
     // ===== RGB + MOTOR =====
     lightInit();
     statusLedInit();   // Status-LED (WS2812 IO48) initialisieren
     motorInit();
+    motor2Init();
     digitalWrite(MOTOR_IN1, LOW);
     digitalWrite(MOTOR_IN2, LOW);
     ledcWrite(3, 0);
+    digitalWrite(MOTOR2_IN1, LOW);
+    digitalWrite(MOTOR2_IN2, LOW);
+    ledcWrite(4, 0);
 
     // ===== I2C + RTC + VEML =====
     Wire.begin(I2C_SDA, I2C_SCL);
@@ -111,11 +162,11 @@ void setup()
     rtcOk = rtc.begin();
     if (!rtcOk) Serial.println("⚠️ RTC DS3231 nicht gefunden");
     luxInit();
+    luxTaskStart();   // Lux-Lesen läuft jetzt auf Core 0 → blockierender I2C kann den Loop nicht mehr lahmlegen
     // bmeInit() nach WiFi – ESP-NOW benötigt initialisierten WiFi-Stack
 
     // ===== WIFI + NTP =====
-    WiFi.mode(WIFI_STA);
-    WiFi.setHostname("Huehnerklappe-ESP32");
+    // Hostname wird in wifiConnectNonBlocking() gesetzt (korrekte Reihenfolge!)
     wifiConnectNonBlocking();
 
     // Warten bis WiFi verbunden – ESP-NOW braucht den korrekten Kanal
@@ -155,6 +206,10 @@ void setup()
     preLightOpenDone = false;
     lightAboveSince  = 0;
     lightBelowSince  = 0;
+
+    // Klappe 2
+    if (door2Open) { door2Phase = PHASE_OPEN; }
+    else           { door2Phase = PHASE_IDLE; }
 
     // ===== MQTT =====
     mqttSetup();
@@ -335,6 +390,56 @@ void setup()
     server.on("/learn-page",    handleLearnPage);
     server.on("/learn-start", HTTP_POST, handleLearn);
     server.on("/log",           handleLogbook);
+
+    // Klappe 2 Einstellungen
+    server.on("/door2-settings", HTTP_GET, handleDoor2Settings);
+    server.on("/save-door2-open",  HTTP_POST, handleSaveDoor2Open);
+    server.on("/save-door2-close", HTTP_POST, handleSaveDoor2Close);
+    server.on("/set-door2-limit-switches", HTTP_POST, []() {
+        if (server.hasArg("enabled")) {
+            door2UseLimitSwitches = server.arg("enabled") == "1";
+            EEPROM.put(EEPROM_ADDR_DOOR2_LIMIT_SW, door2UseLimitSwitches); EEPROM.commit();
+            addLog(String("Klappe2 Endschalter ") + (door2UseLimitSwitches ? "aktiviert" : "deaktiviert"));
+        }
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+    });
+
+    // Klappe 2 Kalibrierung – Stoppuhr
+    server.on("/save-door2-calib", HTTP_POST, []() {
+        String dir = server.arg("dir");
+        long ms = server.arg("ms").toInt();
+        if (ms < 500 || ms > 60000) ms = 6000;
+        if (dir == "open") {
+            door2OpenPosition = ms;
+        } else {
+            door2ClosePosition = ms;
+        }
+        saveDoor2MotorPositions();
+        addLog("Klappe2 " + dir + " kalibriert: " + String(ms) + " ms");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+    });
+
+    // Klappe 2 Kalibrierung – Manuell
+    server.on("/save-door2-calib-manual", HTTP_POST, []() {
+        long op = server.arg("open").toInt();
+        long cp = server.arg("close").toInt();
+        if (op < 500 || op > 60000) op = 6000;
+        if (cp < 500 || cp > 60000) cp = 6000;
+        door2OpenPosition  = op;
+        door2ClosePosition = cp;
+        saveDoor2MotorPositions();
+        addLog("Klappe2 manuell kalibriert: open=" + String(op) + " close=" + String(cp) + " ms");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+    });
+
+    // Klappe 2 Blockade-Schwelle
+    server.on("/save-door2-blockade", HTTP_POST, []() {
+        door2BlockadeThresholdA = server.arg("threshold").toFloat();
+        if (door2BlockadeThresholdA < 0.5f || door2BlockadeThresholdA > 10.0f) door2BlockadeThresholdA = 2.0f;
+        saveDoor2BlockadeThreshold();
+        addLog("Klappe2 Blockade-Schwelle: " + String(door2BlockadeThresholdA, 1) + " A");
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+    });
 server.on("/save-stalllight", HTTP_POST, []() {
     stallLightAutoOff = server.arg("autooff") == "1";
     int min = server.arg("minutes").toInt();
@@ -382,6 +487,9 @@ server.on("/save-stalllight", HTTP_POST, []() {
             doorPhase = doorOpen ? PHASE_OPEN : PHASE_IDLE;
             addLog("Motor gestoppt"); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "STOP"); return;
         }
+        if (motor2State != MOTOR_STOPPED) {
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(409, "text/plain", "Klappe 2 Motor läuft"); return;
+        }
         if (doorOpen) {
             doorPhase = PHASE_CLOSING; motorReason = "manuell/Web (Toggle)";
             startMotorClose(closePosition); actionLock = true;
@@ -417,6 +525,41 @@ server.on("/save-stalllight", HTTP_POST, []() {
         preLightOpenDone = false; manualOverrideUntil = millis() + 300000UL;
         server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Closing");
     });
+
+    // ===== KLAPPE 2 TOGGLE =====
+    server.on("/door2", []() {
+        if (otaInProgress || ioSafeState) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "OTA aktiv"); return; }
+        if (motor2State != MOTOR_STOPPED) {
+            motor2Stop(); motor2State = MOTOR_STOPPED; motor2Reason = "Stop/Manuell";
+            door2Phase = door2Open ? PHASE_OPEN : PHASE_IDLE;
+            addLog("Klappe2 Motor gestoppt"); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "STOP"); return;
+        }
+        if (isAnyMotorRunning()) {
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(409, "text/plain", "Anderer Motor läuft"); return;
+        }
+        if (door2Open) {
+            door2Phase = PHASE_CLOSING; motor2Reason = "manuell/Web";
+            startMotor2Close(door2ClosePosition); actionLock2 = true;
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Closing2"); addLog("Klappe2 Schließvorgang (Web)");
+        } else {
+            door2Phase = PHASE_OPENING; motor2Reason = "manuell/Web";
+            startMotor2Open(door2OpenPosition); actionLock2 = true;
+            server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Opening2"); addLog("Klappe2 Öffnung (Web)");
+        }
+    });
+
+    // Klappe 2 Motor-Service-Endpunkte
+    server.on("/motor2/up", []() {
+        if (otaInProgress || ioSafeState || isAnyMotorRunning()) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "Gesperrt"); return; }
+        motor2Reason = "Service"; startMotor2Open(30000);  // 30s Timeout für Kalibrierung
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+    });
+    server.on("/motor2/down", []() {
+        if (otaInProgress || ioSafeState || isAnyMotorRunning()) { server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(503, "text/plain", "Gesperrt"); return; }
+        motor2Reason = "Service"; startMotor2Close(30000);  // 30s Timeout für Kalibrierung
+        server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK");
+    });
+    server.on("/motor2/stop", []() { motor2Stop(); motor2State = MOTOR_STOPPED; server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OK"); });
 
     server.on("/light", []() {
         if (manualLightActive) { manualLightActive = false; lightOff(); lightActive = false; addLog("Locklicht manuell AUS"); server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "OFF"); }
@@ -537,6 +680,7 @@ server.on("/save-stalllight", HTTP_POST, []() {
 
     server.on("/reset", HTTP_POST, []() {
         server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(200, "text/plain", "Restarting");
+        lastRestartSource = RESTART_WEB_UI;
         delay(500); ESP.restart();
     });
 
@@ -630,7 +774,7 @@ server.on("/save-stalllight", HTTP_POST, []() {
             server.client().setNoDelay(true); server.sendHeader("Connection","close"); server.send(ok ? 200 : 500, "text/plain; charset=UTF-8", ok ? "Update erfolgreich" : "Update fehlgeschlagen");
             otaInProgress = false;
             ioSafeState   = false;
-            if (ok) { delay(300); ESP.restart(); }
+            if (ok) { lastRestartSource = RESTART_OTA; delay(300); ESP.restart(); }
         },
         []() {
             HTTPUpload &u = server.upload();
@@ -639,8 +783,11 @@ server.on("/save-stalllight", HTTP_POST, []() {
                 otaInProgress = true;
                 ioSafeState   = true;
                 motorStop();
+                motor2Stop();
                 digitalWrite(MOTOR_IN1, LOW);
                 digitalWrite(MOTOR_IN2, LOW);
+                digitalWrite(MOTOR2_IN1, LOW);
+                digitalWrite(MOTOR2_IN2, LOW);
                 lightOff();
                 stallLightOff();
                 Serial.printf("OTA start: %s\n", u.filename.c_str());
@@ -662,16 +809,72 @@ server.on("/save-stalllight", HTTP_POST, []() {
         }
     );
 
-    // ===== RELAIS-TEST (Boot-Indikator) =====
-    lightOn();
-    { unsigned long t = millis(); while (millis() - t < 1000) yield(); }
-    lightOff();
-    { unsigned long t = millis(); while (millis() - t < 200)  yield(); }
+    // ===== RELAIS-TEST (Boot-Indikator) – deaktiviert =====
+    // lightOn();
+    // { unsigned long t = millis(); while (millis() - t < 1000) yield(); }
+    // lightOff();
+    // { unsigned long t = millis(); while (millis() - t < 200)  yield(); }
 
     bootTime = millis();
     server.begin();
+    // ===== FIRMWARE-UPDATE-ERKENNUNG =====
+    // Wenn die im EEPROM gespeicherte FW-Version von der aktuellen abweicht,
+    // war der letzte Reset ein Firmware-Update (OTA oder USB-Flash).
+    char savedFwVersion[16] = {0};
+    EEPROM.get(EEPROM_ADDR_LAST_FW, savedFwVersion);
+    savedFwVersion[15] = '\0';  // Sicherheit
+    bool firmwareUpdated = (strncmp(savedFwVersion, FW_VERSION, 15) != 0);
+    if (firmwareUpdated) {
+        // Aktuelle Version speichern für nächsten Boot
+        char currentFw[16] = {0};
+        strncpy(currentFw, FW_VERSION, 15);
+        EEPROM.put(EEPROM_ADDR_LAST_FW, currentFw);
+        EEPROM.commit();
+    }
+
     addLog("🚀 Hühnerklappe gestartet – FW " + String(FW_VERSION));
-    addLog("🌐 Erreichbar unter http://klappe.local oder http://" + WiFi.localIP().toString());
+    addLog("🌐 Erreichbar unter http://" + String(DEVICE_HOSTNAME) + ".local oder http://" + WiFi.localIP().toString());
+
+    // Neustart-Grund loggen
+    esp_reset_reason_t reason = esp_reset_reason();
+    String reasonStr;
+    switch (reason) {
+        case ESP_RST_POWERON:  reasonStr = "Eingeschaltet";      break;
+        case ESP_RST_SW:       reasonStr = firmwareUpdated ? "Firmware-Update" : "Software-Restart"; break;
+        case ESP_RST_PANIC:    reasonStr = "Kernel-Panic/Crash"; break;
+        case ESP_RST_INT_WDT:  reasonStr = "Interrupt-Watchdog"; break;
+        case ESP_RST_TASK_WDT: reasonStr = "Task-Watchdog";      break;
+        case ESP_RST_WDT:      reasonStr = "Watchdog";           break;
+        case ESP_RST_BROWNOUT: reasonStr = "Unterspannung";      break;
+        default:               reasonStr = "Unbekannt (" + String((int)reason) + ")"; break;
+    }
+    addLog("🔄 Neustart-Grund: " + reasonStr);
+    addLog("💾 Freier Heap: " + String(ESP.getFreeHeap() / 1024) + " KB");
+
+    // Per-Core Reset-Reason (detaillierter als esp_reset_reason)
+    // 1=PowerOn, 3=SW_RESET, 12=SW_CPU_RESET, 14=TG0WDT, 15=TG1WDT, 16=RTCWDT
+    addLog("🔬 Reset-Code Core0: " + String(rtc_get_reset_reason(0))
+         + " Core1: " + String(rtc_get_reset_reason(1)));
+
+    // Bei Firmware-Update: keine Crash-Diagnose anzeigen (würde nur verwirren)
+    if (firmwareUpdated) {
+        if (strlen(savedFwVersion) > 0)
+            addLog("⬆️ Firmware aktualisiert: " + String(savedFwVersion) + " → " + String(FW_VERSION));
+        else
+            addLog("⬆️ Firmware: Erstinstallation oder EEPROM neu");
+    }
+    else if (reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT ||
+             reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT ||
+             reason == ESP_RST_SW) {
+        addLog("📍 Letzte Position vor Restart: " + crumbName(crashBreadcrumb));
+        addLog("🔎 Restart-Quelle: " + restartSourceName(lastRestartSource));
+    }
+    crashBreadcrumb   = CRUMB_IDLE;
+    lastRestartSource = RESTART_UNKNOWN;
+    if (!firmwareUpdated) {
+        diagLogBootInfo();   // Heap/Stack/Uptime-Diagnose vom vorherigen Lauf
+    }
+    diagReset();             // Diagnosewerte für neuen Lauf zurücksetzen
 }
 
 // ==========================
@@ -679,28 +882,37 @@ server.on("/save-stalllight", HTTP_POST, []() {
 // ==========================
 void loop()
 {
-    wdogFeed();            // Software-Watchdog
+    wdogFeed();
 
-    // WebServer bei jedem Durchlauf bedienen
+    setCrumb(CRUMB_WEBSERVER);
     server.handleClient();
+    yield();   // WiFi-Stack CPU-Zeit geben
 
-    // Während OTA-Upload: nur WebServer, kein delay, keine Logik
-    // Während OTA-Upload: nur WebServer, kein delay, keine Logik
     if (otaInProgress) {
-        statusLedOta();   // Blaues Lauflicht während OTA
+        wdogFeed();
+        statusLedOta();
         return;
     }
 
     const unsigned long nowMs = millis();
-    if (nowMs - lastLogicRun < LOGIC_INTERVAL) return;  // kein delay – sofort zurück
+    if (nowMs - lastLogicRun < LOGIC_INTERVAL) return;
     lastLogicRun = nowMs;
+    wdogFeed();
 
     // ===== NETZWERK =====
+    setCrumb(CRUMB_MQTT);
     mqttLoop();
-    server.handleClient();   // Web-Requests zwischen schweren Operationen abarbeiten
+    wdogFeed();
+
+    setCrumb(CRUMB_WEBSERVER);
+    // server.handleClient() bereits am Loop-Anfang
+
+    setCrumb(CRUMB_WIFI);
     wifiWatchdog();
+    wdogFeed();
 
     // NTP Nachsync
+    setCrumb(CRUMB_NTP);
     static bool ntpOk = false;
     static unsigned long lastNtpRetry = 0;
     if (!ntpOk && millis() - lastNtpRetry > 10000 && WiFi.status() == WL_CONNECTED) {
@@ -714,12 +926,16 @@ void loop()
     }
 
     // ===== MOTOR + TASTER =====
+    setCrumb(CRUMB_MOTOR);
     updateMotor();
+    updateMotor2();
     updateButton();
     updateStallButton();
     updateRedButton();
+    wdogFeed();
 
     // ===== LUX LESEN (alle 1s) =====
+    setCrumb(CRUMB_LUX);
     float rawLux = NAN;
     bool  luxValid = false;
     bool  luxReadAttempted = false;
@@ -736,15 +952,21 @@ void loop()
             rawLux = testLuxStart - (testLuxStart - testLuxEnd) * (elapsed / testDurationMin);
             lightAutomationAvailable = true;
         }
-        else rawLux = getLux();
+        else {
+            // Lux-Wert vom Hintergrund-Task abholen (nicht-blockierend)
+            // Wenn der Task hängt, kommt NAN zurück und das System läuft weiter
+            rawLux = luxTaskGetValue();
+        }
 
         if (isfinite(rawLux)) rawLux = medianLux(rawLux);
     }
     luxValid = isfinite(rawLux) && rawLux >= 0.0f;
 
     // ===== LUX-FEHLERÜBERWACHUNG =====
+    setCrumb(CRUMB_I2C_HEALTH);
     if (luxReadAttempted)
         checkLuxHealth(nowMs, rawLux, luxValid);
+    wdogFeed();
 
     // ===== EMA FILTER =====
     if (luxValid)
@@ -773,12 +995,16 @@ void loop()
     updateSystemHealth();
 
     // ===== BME280 =====
+    setCrumb(CRUMB_BME);
     bmeUpdate();
     relaySync();
-    loggerUpdate();  // LittleFS deferred write alle 30s
-    server.handleClient();   // Web-Requests nach I2C/Sensor-Arbeit abarbeiten
+    wdogFeed();
+
+    setCrumb(CRUMB_LITTLEFS);
+    loggerUpdate();
 
     // ===== DIMMING + STALLLICHT =====
+    setCrumb(CRUMB_LIGHT);
     updateDimming(nowMs);
     updateStallLightTimer(nowMs);
 
@@ -820,14 +1046,46 @@ void loop()
         statOpenCount = 0; statCloseCount = 0; statOpenDurationMs = 0;
     }
 
+    setCrumb(CRUMB_AUTOMATIK);
     runAutomatik(now, nowMin, nowMs, luxValid, luxReady, luxRateFiltered);
+    runAutomatik2(now, nowMin, nowMs, luxValid, luxReady, luxRateFiltered);
+    wdogFeed();
 
-    // ===== TELEGRAM DEADLINE =====
+    // ===== TELEGRAM =====
+    setCrumb(CRUMB_TELEGRAM);
+    telegramCheckPending();
     telegramDeadlineCheck();
+    telegramNightCheck();
+    wdogFeed();
 
     // ===== LICHT-ZUSTANDSMASCHINE =====
+    setCrumb(CRUMB_LIGHT);
     updateLightState();
 
     // ===== STATUS-LED =====
     statusLedUpdate();
+
+    // ===== CRASH-DIAGNOSTIK (alle 10s) =====
+    {
+        static unsigned long lastDiagRun = 0;
+        if (nowMs - lastDiagRun > 10000UL) {
+            lastDiagRun = nowMs;
+            diagUpdate();  // Heap/Stack/Uptime in RTC-Memory sichern
+
+            uint32_t freeHeap = ESP.getFreeHeap();
+            if (freeHeap < 30000) {
+                addLog("⚠️ Heap kritisch: " + String(freeHeap/1024) + " KB frei, Min: " + String(ESP.getMinFreeHeap()/1024) + " KB");
+            }
+            if (freeHeap < 20000) {
+                addLog("🚨 Heap < 20 KB – präventiver Neustart");
+                loggerUpdate();
+                lastRestartSource = RESTART_HEAP_LOW;
+                delay(100);
+                ESP.restart();
+            }
+        }
+    }
+
+    setCrumb(CRUMB_IDLE);
+    yield();   // WiFi-Stack und andere Tasks bedienen
 }

@@ -47,6 +47,17 @@ struct Settings
     int  lampPostClose;
 };
 
+// Klappe 2 – ohne Lichtsteuerung
+struct Door2Settings
+{
+    char openMode[6];
+    char closeMode[6];
+    char openTime[6];
+    char closeTime[6];
+    int  openLightThreshold;
+    int  closeLightThreshold;
+};
+
 struct MqttSettings
 {
     bool     enabled;
