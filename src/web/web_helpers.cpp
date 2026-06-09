@@ -104,8 +104,17 @@ function toggleTheme(){
     .then(()=>document.documentElement.setAttribute("data-theme",n));
 }
 // SPA-Navigation: fetch() nutzt die bestehende TCP-Verbindung (kein iOS WiFi-Stall)
-// spaInflight verhindert konkurrierende Fetches (Fix: Einfachmodus-Flackern)
+// spaInflight verhindert konkurrierende Fetches. Simple-Mode wird nach document.write() gesetzt.
 var spaInflight=false;
+function applySimpleModeClass(){
+  try{
+    var on = localStorage.getItem('simpleMode')==='1';
+    if(on) document.documentElement.classList.add('simple-mode');
+    else document.documentElement.classList.remove('simple-mode');
+    var t=document.getElementById('simpleModeToggle');
+    if(t) t.checked = on;
+  }catch(e){}
+}
 document.addEventListener('click',function(e){
   var a=e.target.closest('a[href^="/"]');
   if(!a||a.getAttribute('onclick'))return;
@@ -116,11 +125,8 @@ document.addEventListener('click',function(e){
   var c=document.querySelector('.container');
   if(c)c.style.opacity='0.4';
   fetch(url,{cache:'no-store'}).then(function(r){return r.text();}).then(function(h){
-    try{
-      var sm=localStorage.getItem('simpleMode')==='1';
-      if(sm) h=h.replace(/<html /,'<html class="simple-mode" ').replace(/<html>/,'<html class="simple-mode">');
-    }catch(ex){}
     document.open();document.write(h);document.close();
+    applySimpleModeClass();
     if(history.pushState)history.pushState({},'',url);
   }).catch(function(){location.href=url;}).finally(function(){spaInflight=false;});
 });

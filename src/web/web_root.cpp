@@ -159,8 +159,19 @@ async function update(){
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')update();});
 // setTimeout(0) = update() läuft NACH dem DOM-Aufbau (auch nach document.write)
 setTimeout(function(){syncSimpleModeToggle();update();setInterval(update,5000);},0);
-// SPA-Navigation – spaInflight verhindert konkurrierende Fetches (Fix: Einfachmodus-Flackern)
+// SPA-Navigation – spaInflight verhindert konkurrierende Fetches.
+// Simple-Mode wird NACH document.write() explizit gesetzt/entfernt (kein HTML-Patching).
 var spaInflight=false;
+function applySimpleModeClass(){
+  try{
+    var on = localStorage.getItem('simpleMode')==='1';
+    if(on) document.documentElement.classList.add('simple-mode');
+    else document.documentElement.classList.remove('simple-mode');
+    // Schalter mit dem tatsaechlichen Zustand synchronisieren (Scripts nach document.write() laufen nicht zuverlaessig)
+    var t=document.getElementById('simpleModeToggle');
+    if(t) t.checked = on;
+  }catch(e){}
+}
 document.addEventListener('click',function(e){
   var a=e.target.closest('a[href^="/"]');
   if(!a||a.getAttribute('onclick'))return;
@@ -171,13 +182,8 @@ document.addEventListener('click',function(e){
   var c=document.querySelector('.container');
   if(c)c.style.opacity='0.4';
   fetch(url,{cache:'no-store'}).then(function(r){return r.text();}).then(function(h){
-    // Einfachmodus direkt in den HTML-String injizieren, bevor document.write() aufgerufen wird.
-    // So muss das IIFE im neuen Dokument localStorage nicht mehr race-condition-frei lesen.
-    try{
-      var sm=localStorage.getItem('simpleMode')==='1';
-      if(sm) h=h.replace(/<html /,'<html class="simple-mode" ').replace(/<html>/,'<html class="simple-mode">');
-    }catch(ex){}
     document.open();document.write(h);document.close();
+    applySimpleModeClass();
     if(history.pushState)history.pushState({},'',url);
   }).catch(function(){location.href=url;}).finally(function(){spaInflight=false;});
 });
