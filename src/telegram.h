@@ -14,6 +14,7 @@ void telegramSend(const String &msg);
 void telegramDoorOpened(const String &reason);
 void telegramDoorClosed(const String &reason, float lux);
 void telegramSensorError();
+void telegramSensorRecovered();   // NEU: Lichtsensor wieder OK
 void telegramWatchdogRestart();
 void telegramDeadlineCheck();   // im loop() täglich um TELEGRAM_OPEN_DEADLINE prüfen
 void telegramNightCheck();     // im loop() abends prüfen ob Tür noch offen

@@ -215,10 +215,29 @@ void updateLightState()
         {
             if (lightState == LIGHT_POST_OPEN)  addLog("Locklicht nach Öffnung beendet");
             if (lightState == LIGHT_POST_CLOSE) addLog("Locklicht nach Schließen beendet");
+            if (lightState == LIGHT_PRE_OPEN)   addLog("Locklicht vor Öffnung beendet");
+            if (lightState == LIGHT_PRE_CLOSE)  addLog("Locklicht vor Schließen beendet");
             lightState = LIGHT_OFF;
         }
         break;
     }  // end switch
+
+    // ===== WS2812 + RELAIS PERIODISCHES REFRESH =====
+    // WS2812-LEDs verlieren bei EMV-Spikes oder Spannungseinbrüchen ihren
+    // gespeicherten Zustand und gehen auf schwarz/aus. Auch das Relais-GPIO
+    // kann theoretisch durch einen Spike umkippen.
+    // Wir senden alle 5s den aktuellen Zustand neu, damit verlorene LEDs
+    // und ein ggf. umgekipptes Relais ihren Zustand zurückbekommen.
+    if (lightActive && !dimmingActive)
+    {
+        static unsigned long lastLightRefresh = 0;
+        if (nowMs - lastLightRefresh > 5000UL)
+        {
+            lastLightRefresh = nowMs;
+            digitalWrite(RELAIS_PIN, RELAY_ON);
+            rgbSetScaled(rgbColorR, rgbColorG, rgbColorB, rgbBrightness, rgbColorW);
+        }
+    }
 }  // end updateLightState
 
 // ==================================================

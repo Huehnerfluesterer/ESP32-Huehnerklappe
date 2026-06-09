@@ -90,8 +90,13 @@ a      { touch-action:manipulation; }
 button.danger { background:var(--red); }
 nav { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); width:100%; max-width:430px; background:var(--card); border-radius:22px; box-shadow:0 10px 25px rgba(0,0,0,0.15); display:flex; padding:0; padding-bottom:env(safe-area-inset-bottom); }
 nav a { flex:1; text-align:center; text-decoration:none; color:var(--muted); font-size:13px; font-weight:600; padding:12px 0; -webkit-tap-highlight-color:rgba(0,0,0,0.1); }
+/* Einfachmodus: blendet "Einstellungen" und "Erweitert" aus. Einstellung lebt im localStorage des Browsers. */
+:root.simple-mode nav a[href="/settings"],
+:root.simple-mode nav a[href="/advanced"] { display:none; }
 </style>
 <script>
+// Frueh ausfuehren, BEVOR <body> rendert, damit der Einfachmodus ohne Flackern wirkt.
+(function(){ try { if (localStorage.getItem('simpleMode')==='1') document.documentElement.classList.add('simple-mode'); } catch(e){} })();
 function toggleTheme(){
   let c=document.documentElement.getAttribute("data-theme");
   let n=c==="auto"?"dark":c==="dark"?"light":"auto";

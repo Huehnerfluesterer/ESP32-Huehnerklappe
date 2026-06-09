@@ -25,6 +25,8 @@ static unsigned long mqttLastConnectAttempt = 5000UL;  // 5s Boot-Verzögerung
 static unsigned long mqttLastStatus         = 0;
 static unsigned long mqttRetryInterval      = 30000UL;  // Start: 30s, steigt bis 5min
 static bool          mqttWasConnected       = false;    // für Log-Spam-Vermeidung
+static unsigned long mqttDisconnectAt       = 0;        // Zeitstempel des Disconnects (Logspam-Schutz)
+static bool          mqttDisconnectLogged   = false;    // wurde der aktuelle Disconnect schon geloggt?
 const  unsigned long MQTT_STATUS_INTERVAL_MS = 10000UL;
 
 // ---- Crash-Schutz ----
@@ -350,8 +352,8 @@ void mqttSetup()
     mqttClient.setServer(mqttSettings.host, mqttSettings.port);
     mqttClient.setCallback(mqttCallback);
     mqttClient.setBufferSize(1024);
-    mqttClient.setKeepAlive(60);     // 60s – 15s war zu aggressiv → ständige Disconnects
-    mqttClient.setSocketTimeout(2);  // 2s – Kompromiss zwischen Blockade und Zuverlässigkeit
+    mqttClient.setKeepAlive(30);     // 30s – sendet alle 30s einen Ping. Hält NAT-Tabelle und Broker-Idle-Timer frisch
+    mqttClient.setSocketTimeout(3);  // 3s – Kompromiss zwischen Blockade und Zuverlässigkeit
 
     // WiFi-Event-Handler: wird SOFORT aufgerufen wenn WiFi wegfällt,
     // BEVOR der nächste Loop-Durchlauf PubSubClient anfassen kann.
@@ -372,18 +374,32 @@ static void mqttEnsureConnected()
     // Wenn Socket safe ist: normaler Connected-Check erlaubt
     if (mqttSocketSafe && mqttClient.connected()) {
         if (!mqttWasConnected) {
-            addLog("MQTT verbunden");
+            // Nur loggen wenn der Disconnect länger als 5 min war (echter Ausfall),
+            // sonst kurze Broker-Glitches nicht ins Log spammen
+            if (mqttDisconnectAt > 0 && (millis() - mqttDisconnectAt) > 300000UL) {
+                unsigned long downSec = (millis() - mqttDisconnectAt) / 1000;
+                addLog("MQTT verbunden (war " + String(downSec) + "s offline)");
+            }
             mqttWasConnected = true;
+            mqttDisconnectAt = 0;
             mqttRetryInterval = 30000UL;
         }
         return;
     }
 
-    // Gerade verloren? Einmalig loggen
+    // Gerade verloren? Zeitstempel merken (nicht direkt loggen)
     if (mqttWasConnected) {
         mqttWasConnected = false;
-        addLog("MQTT Verbindung verloren");
+        mqttDisconnectAt = millis();
     }
+
+    // Wenn schon länger als 5 min offline und noch nicht geloggt → echter Ausfall
+    if (!mqttDisconnectLogged && mqttDisconnectAt > 0 &&
+        (millis() - mqttDisconnectAt) > 300000UL) {
+        addLog("MQTT Verbindung verloren");
+        mqttDisconnectLogged = true;
+    }
+    if (mqttSocketSafe && mqttClient.connected()) mqttDisconnectLogged = false;
 
     // WiFi-Signal zu schwach? Nicht versuchen
     int rssi = WiFi.RSSI();

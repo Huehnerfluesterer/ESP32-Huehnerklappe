@@ -27,6 +27,22 @@ void updateSystemHealth();
 void tpl5110Init();
 void wdogFeed();   // Task-WDT direkt füttern (aus Loop aufrufen)
 
+// ==================================================
+// I²C-BUS-MUTEX
+// ==================================================
+// Schützt den I²C-Bus gegen gleichzeitigen Zugriff von zwei Cores.
+// Kritisch beim VEML-Reinit: i2cBusRecover() reißt den Bus per Wire.end()
+// + Bit-Banging der Pins komplett nieder. Läuft das gleichzeitig mit einem
+// getLux() des Lux-Tasks (Core 0), verklemmt die I2C-Peripherie → 120s-Hang
+// → Task-WDT-Reboot. Der Mutex stellt sicher, dass Reinit und getLux nie
+// gleichzeitig laufen.
+//
+// Rekursiv, damit verschachtelte Takes desselben Tasks (z.B. getLux → addLog
+// → nowRTC) nicht zum Selbst-Deadlock führen.
+void i2cMutexInit();             // einmal in setup() VOR luxTaskStart() aufrufen
+bool i2cTake(uint32_t timeoutMs); // true = Bus reserviert; false = Timeout, NICHT zugreifen
+void i2cGive();                  // nach erfolgreichem i2cTake() aufrufen
+
 // Crash-Breadcrumb (überlebt Watchdog-Reset)
 void setCrumb(uint8_t c);
 String crumbName(uint8_t c);

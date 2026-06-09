@@ -1,9 +1,9 @@
 #pragma once
 #include <Arduino.h>
 
-#define LOG_SIZE       100   // Max. Einträge im RAM-Puffer
+#define LOG_SIZE       500   // Max. Einträge im RAM-Puffer
 #define LOG_FILE       "/logbook.txt"
-#define LOG_MAX_LINES  100   // Max. Zeilen in der Datei
+#define LOG_MAX_LINES  500   // Max. Zeilen in der Datei
 
 // Logbuch-Puffer (in logger.cpp definiert)
 extern String logbook[LOG_SIZE];

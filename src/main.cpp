@@ -1,7 +1,7 @@
 // ==========================
 // FIRMWARE VERSION
 // ==========================
-const char *FW_VERSION = "4.0.1";
+const char *FW_VERSION = "5.0.2";
 
 // ==========================
 // INCLUDES
@@ -107,6 +107,7 @@ void setup()
     pinMode(RELAIS_PIN,         OUTPUT); digitalWrite(RELAIS_PIN, RELAY_OFF);
     pinMode(STALLLIGHT_RELAY_PIN,OUTPUT);digitalWrite(STALLLIGHT_RELAY_PIN, STALLLIGHT_OFF);
     pinMode(BUTTON_PIN,         INPUT_PULLUP);
+    pinMode(BUTTON2_PIN,        INPUT_PULLUP);
     pinMode(STALL_BUTTON_PIN,   INPUT_PULLUP);
     pinMode(RED_BUTTON_PIN,     INPUT_PULLUP);
     pinMode(LIMIT_OPEN_PIN,     INPUT_PULLUP);
@@ -157,8 +158,9 @@ void setup()
 
     // ===== I2C + RTC + VEML =====
     Wire.begin(I2C_SDA, I2C_SCL);
-    Wire.setClock(100000);   // 100 kHz – stabiler als 30 kHz
+    Wire.setClock(50000);    // 50 kHz – robust gegen Leitungs-Kapazität (1,5m Cat5)
     Wire.setTimeOut(20);     // 20ms Timeout (war 50ms)
+    i2cMutexInit();          // ← NEU: Mutex erzeugen BEVOR der Lux-Task startet
     rtcOk = rtc.begin();
     if (!rtcOk) Serial.println("⚠️ RTC DS3231 nicht gefunden");
     luxInit();
@@ -930,6 +932,7 @@ void loop()
     updateMotor();
     updateMotor2();
     updateButton();
+    updateButton2();
     updateStallButton();
     updateRedButton();
     wdogFeed();

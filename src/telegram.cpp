@@ -173,7 +173,18 @@ void telegramSensorError()
     if (!telegramSettings.enabled) return;
     if (tgSensorAlertSent) return;  // nur einmal pro Session senden
     tgSensorAlertSent = true;
-    telegramSend("⚠️ Lichtsensor ausgefallen!\nLichtautomatik deaktiviert.\nNeustart geplant um 03:00 Uhr.");
+    // Hinweis: Auto-Reset spätestens nach 2h durchgehendem Hard-Error (siehe lux.cpp),
+    // oder als Fallback um 03:00 Uhr (siehe logic.cpp).
+    telegramSend("⚠️ Lichtsensor ausgefallen!\nLichtautomatik deaktiviert.\n"
+                 "Auto-Reset spätestens nach 2h oder um 03:00 Uhr.");
+}
+
+void telegramSensorRecovered()
+{
+    if (!telegramSettings.enabled) return;
+    if (!tgSensorAlertSent) return;  // kein Alarm aktiv → nichts zu melden
+    tgSensorAlertSent = false;       // Flag zurücksetzen für nächste Runde
+    telegramSend("✅ Lichtsensor wieder OK\nLichtautomatik reaktiviert.");
 }
 
 void telegramWatchdogRestart()

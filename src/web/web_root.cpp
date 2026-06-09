@@ -68,8 +68,22 @@ nav { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); width:1
 nav a { flex:1; text-align:center; text-decoration:none; color:var(--muted); font-size:13px; font-weight:600; padding:12px 0; -webkit-tap-highlight-color:rgba(0,0,0,0.1); }
 .card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .sys-link { text-decoration:none; }
+/* Einfachmodus: blendet "Einstellungen" und "Erweitert" aus. Einstellung lebt im localStorage des Browsers (pro Geraet). */
+:root.simple-mode nav a[href="/settings"],
+:root.simple-mode nav a[href="/advanced"] { display:none; }
+/* iOS-Style Schiebeschalter */
+.toggle-row { display:flex; align-items:center; justify-content:space-between; }
+.toggle-label { font-size:14px; color:var(--muted); }
+.toggle { position:relative; display:inline-block; width:48px; height:28px; }
+.toggle input { opacity:0; width:0; height:0; }
+.toggle-slider { position:absolute; cursor:pointer; inset:0; background:#ccc; border-radius:28px; transition:0.2s; }
+.toggle-slider:before { position:absolute; content:""; height:22px; width:22px; left:3px; top:3px; background:white; border-radius:50%; transition:0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.3); }
+.toggle input:checked + .toggle-slider { background:var(--green); }
+.toggle input:checked + .toggle-slider:before { transform:translateX(20px); }
 </style>
 <script>
+// Frueh ausfuehren BEVOR <body> rendert, damit der Einfachmodus ohne Flackern wirkt.
+(function(){ try { if (localStorage.getItem('simpleMode')==='1') document.documentElement.classList.add('simple-mode'); } catch(e){} })();
 let inflight = false;
 function tFetch(url,opts){const c=new AbortController();const t=setTimeout(()=>c.abort(),4000);opts=Object.assign({signal:c.signal},opts||{});return fetch(url,opts).finally(()=>clearTimeout(t));}
 async function debounceAction(btn,fn){ if(!btn)return; btn.disabled=true; try{await fn();}finally{setTimeout(()=>btn.disabled=false,350);} }
@@ -80,6 +94,17 @@ async function toggleDoor2(){ const b=document.getElementById('door2Btn'); await
 async function clearOverride(){await tFetch('/clear-override',{method:'POST'});await update();}
 async function toggleRGB(){ const b=document.getElementById('rgbBtn'); await debounceAction(b,async()=>{await tFetch('/rgbred',{cache:'no-store'});await update();}); }
 async function setRedBright(v){document.getElementById('redBrightVal').innerText=v;const fd=new FormData();fd.append('v',v);await tFetch('/red-brightness',{method:'POST',body:fd});}
+// Einfachmodus an/aus: speichert nur im localStorage, kein Server-Roundtrip
+function toggleSimpleMode(){
+  const t = document.getElementById('simpleModeToggle');
+  const on = t && t.checked;
+  try { localStorage.setItem('simpleMode', on ? '1' : '0'); } catch(e){}
+  document.documentElement.classList.toggle('simple-mode', !!on);
+}
+function syncSimpleModeToggle(){
+  const t = document.getElementById('simpleModeToggle'); if(!t) return;
+  try { t.checked = (localStorage.getItem('simpleMode')==='1'); } catch(e){}
+}
 function setDoorButton(label,cls){ const b=document.getElementById('doorBtn'); if(!b)return; b.textContent=label; b.classList.remove('btn-open','btn-close','btn-stop'); b.classList.add(cls); }
 async function update(){
   if(inflight)return; inflight=true;
@@ -133,19 +158,28 @@ async function update(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')update();});
 // setTimeout(0) = update() läuft NACH dem DOM-Aufbau (auch nach document.write)
-setTimeout(function(){update();setInterval(update,5000);},0);
-// SPA-Navigation
+setTimeout(function(){syncSimpleModeToggle();update();setInterval(update,5000);},0);
+// SPA-Navigation – spaInflight verhindert konkurrierende Fetches (Fix: Einfachmodus-Flackern)
+var spaInflight=false;
 document.addEventListener('click',function(e){
   var a=e.target.closest('a[href^="/"]');
   if(!a||a.getAttribute('onclick'))return;
   e.preventDefault();
+  if(spaInflight)return;
+  spaInflight=true;
   var url=a.getAttribute('href');
   var c=document.querySelector('.container');
   if(c)c.style.opacity='0.4';
   fetch(url,{cache:'no-store'}).then(function(r){return r.text();}).then(function(h){
+    // Einfachmodus direkt in den HTML-String injizieren, bevor document.write() aufgerufen wird.
+    // So muss das IIFE im neuen Dokument localStorage nicht mehr race-condition-frei lesen.
+    try{
+      var sm=localStorage.getItem('simpleMode')==='1';
+      if(sm) h=h.replace(/<html /,'<html class="simple-mode" ').replace(/<html>/,'<html class="simple-mode">');
+    }catch(ex){}
     document.open();document.write(h);document.close();
     if(history.pushState)history.pushState({},'',url);
-  }).catch(function(){location.href=url;});
+  }).catch(function(){location.href=url;}).finally(function(){spaInflight=false;});
 });
 window.addEventListener('popstate',function(){location.reload();});
 </script>
@@ -185,6 +219,15 @@ window.addEventListener('popstate',function(){location.reload();});
     <hr>
     <button type="button" id="doorBtn" class="btn-open" onclick="toggleDoor()">Öffnen</button>
     <button type="button" id="door2Btn" class="btn-open" onclick="toggleDoor2()" style="margin-top:8px;">Türe Öffnen</button>
+  </div>
+  <div class="card" style="padding:14px 18px;">
+    <div class="toggle-row">
+      <span class="toggle-label">Einfachmodus</span>
+      <label class="toggle">
+        <input type="checkbox" id="simpleModeToggle" onchange="toggleSimpleMode()">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
   </div>
 </div>
 <nav>

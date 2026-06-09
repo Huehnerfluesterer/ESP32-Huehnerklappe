@@ -23,7 +23,9 @@ extern unsigned long lightBelowSince;
 extern unsigned long plannedCloseAt;
 
 // Taster-Logik (zyklisch aufrufen)
-void updateButton();
+void updateButton();          // BUTTON_PIN: Kurz → Klappe 1, Lang (700ms) → Klappe 2
+void updateButton2();         // BUTTON2_PIN: dedizierter Klappe-2-Taster
 void updateStallButton();
-void updateRedButton();    // Taster Rotlicht (Toggle RGB-Rot)
-void handleButtonPress();
+void updateRedButton();       // Taster Rotlicht (Toggle RGB-Rot)
+void handleButtonPress();     // Klappe 1 Toggle-Aktion
+void handleButton2Press();    // Klappe 2 Toggle-Aktion (gemeinsam genutzt: Langdruck K1 + K2-Taster)

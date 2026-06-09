@@ -25,7 +25,8 @@
 #define STALLLIGHT_RELAY_PIN 10   // war ESP32: 19 (USB D–)
 
 // Taster
-#define BUTTON_PIN       39   // war ESP32: 33 – INPUT_PULLUP
+#define BUTTON_PIN       39   // war ESP32: 33 – Kurz: Klappe 1, Lang (700ms): Klappe 2
+#define BUTTON2_PIN      47   // dedizierter Klappe-2-Taster – INPUT_PULLUP (freier GPIO, kein Strapping)
 #define STALL_BUTTON_PIN 41   // war ESP32: 32 – INPUT_PULLUP
 #define RED_BUTTON_PIN   40   // war ESP32: 35 – INPUT_PULLUP
 

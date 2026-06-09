@@ -185,6 +185,28 @@ void wdogFeed()
 }
 
 // ==================================================
+// I²C-BUS-MUTEX (siehe ausführlichen Kommentar in system.h)
+// ==================================================
+static SemaphoreHandle_t i2cMutex = nullptr;
+
+void i2cMutexInit()
+{
+    if (!i2cMutex) i2cMutex = xSemaphoreCreateRecursiveMutex();
+}
+
+bool i2cTake(uint32_t timeoutMs)
+{
+    // Vor der Initialisierung (früher Boot, Single-Task) kein Schutz nötig.
+    if (!i2cMutex) return true;
+    return xSemaphoreTakeRecursive(i2cMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE;
+}
+
+void i2cGive()
+{
+    if (i2cMutex) xSemaphoreGiveRecursive(i2cMutex);
+}
+
+// ==================================================
 bool systemError()
 {
     return errorWifi || errorMQTT || errorSensor;

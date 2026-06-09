@@ -302,7 +302,13 @@ void updateMotor()
                     nightLock = true;
                     addLog("Nacht-Sperre aktiv");
                 }
-                if (!isManualAction())
+                // Settle-Light (POST_CLOSE) starten wenn:
+                //   • automatisches Schließen (klassischer Fall), ODER
+                //   • manuelles Schließen während die Vor-Schließen-Phase lief.
+                // Damit bekommen die Hühner auch nach manuellem Schließen am Abend
+                // ihre 15-min-Dimmphase zum Eingewöhnen. Bei manuellem Schließen
+                // ohne aktive Vor-Phase (z.B. tagsüber) bleibt's wie bisher: kein POST_CLOSE.
+                if (!isManualAction() || lightState == LIGHT_PRE_CLOSE)
                 {
                     lightState = LIGHT_POST_CLOSE;
                     startLightForMinutesReset(lampPostClose);
@@ -387,7 +393,9 @@ void updateMotor()
                 nightLock = true;
                 addLog("Nacht-Sperre aktiv (durch Abschluss Schließen)");
             }
-            if (!isManualAction())
+            // Settle-Light auch nach manuellem Schließen wenn PRE_CLOSE lief
+            // (siehe Erklärung im Endschalter-Block oben).
+            if (!isManualAction() || lightState == LIGHT_PRE_CLOSE)
             {
                 lightState = LIGHT_POST_CLOSE;
                 startLightForMinutesReset(lampPostClose);
