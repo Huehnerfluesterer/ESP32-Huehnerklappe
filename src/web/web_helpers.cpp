@@ -104,17 +104,25 @@ function toggleTheme(){
     .then(()=>document.documentElement.setAttribute("data-theme",n));
 }
 // SPA-Navigation: fetch() nutzt die bestehende TCP-Verbindung (kein iOS WiFi-Stall)
+// spaInflight verhindert konkurrierende Fetches (Fix: Einfachmodus-Flackern)
+var spaInflight=false;
 document.addEventListener('click',function(e){
   var a=e.target.closest('a[href^="/"]');
   if(!a||a.getAttribute('onclick'))return;
   e.preventDefault();
+  if(spaInflight)return;
+  spaInflight=true;
   var url=a.getAttribute('href');
   var c=document.querySelector('.container');
   if(c)c.style.opacity='0.4';
   fetch(url,{cache:'no-store'}).then(function(r){return r.text();}).then(function(h){
+    try{
+      var sm=localStorage.getItem('simpleMode')==='1';
+      if(sm) h=h.replace(/<html /,'<html class="simple-mode" ').replace(/<html>/,'<html class="simple-mode">');
+    }catch(ex){}
     document.open();document.write(h);document.close();
     if(history.pushState)history.pushState({},'',url);
-  }).catch(function(){location.href=url;});
+  }).catch(function(){location.href=url;}).finally(function(){spaInflight=false;});
 });
 window.addEventListener('popstate',function(){location.reload();});
 </script>
